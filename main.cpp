@@ -206,6 +206,7 @@ struct Board {
         }
         score += (myAdjMush - oppAdjMush) * 1;
 
+
         return score;
     }
 
@@ -334,6 +335,7 @@ struct Solver {
 
         auto rects = b.findValidRects();
         if (prevPassed && rects.empty()) return b.evaluate(player);
+
         int opp = (player == 1) ? 2 : 1;
 
         // Try TT best move first if available
@@ -407,7 +409,8 @@ struct Solver {
         Rect bestMove = scored[0].second;
 
         // Iterative deepening (2, 4, 6)
-        for (int depth = 2; depth <= 6; depth += 2) {
+        int maxDepth = ((int)scored.size() <= 4) ? 8 : 6;
+        for (int depth = 2; depth <= maxDepth; depth += 2) {
             auto now = steady_clock::now();
             int64_t elapsed = duration_cast<milliseconds>(now - turnStart).count();
             if (elapsed >= budget * 0.5) break;

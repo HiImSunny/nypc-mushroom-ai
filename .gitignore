@@ -1,0 +1,17 @@
+# Compiled binaries
+*.exe
+*.o
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Logs
+log*.txt
+log/
+_ver_*
+
+# Editor temp
+*.swp
+*.swo
+*~

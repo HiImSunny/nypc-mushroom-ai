@@ -9,6 +9,10 @@
 // Session 6 � 2026-06-20
 //   Optimize findValidRects (incremental colSum + early skip) + merge game-over check
 //   Result: self-play 5W 0L (72-44, 47t, 425ms), battle 9W 5L (64%)
+// Session 9 — 2026-06-20
+//   Depth 8 endgame khi scored.size() <= 4 (+2 ply o cuoi game)
+//   Result: self-play 5W 0L (72-44, 560ms), battle 10W 1D 3L (71%)
+//   Insight: cai thien tu 57% len 71% nho search sau 2 ply o endgame
 // ============================================================
 #define VERSION_STR "mushroom_ai_v6_final"
 #include <iostream>

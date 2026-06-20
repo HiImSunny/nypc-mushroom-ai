@@ -363,3 +363,48 @@ Cells: 72-44, turns: 47, max time: 424ms
 - Moi thay doi evaluate deu gay regression (AI mat can bang giua cac yeu to).
 - findValidRects optimization (Session 6) la change duy nhat co hieu qua thuc su.
 - Can mot huong tiep can khac de vuot qua 77% (vd: opening book, endgame tablebase, hay search algorithm rewrite).
+
+================================================================================
+## Session 9 — 2026-06-20 (Depth 8 endgame khi <= 4 rects - THANH CONG!)
+================================================================================
+
+### Changes
+- **Duy nhat 1 thay doi**: Khi scored.size() <= 4, tang maxDepth tu 6 len 8.
+- Gi nguyen toan bo phan con lai (K=12/15, evaluate, budget, etc.)
+- Khong co full K, khong co bounding box, khong co depth extension.
+
+### Ly do thanh cong
+- Tat ca cac thu truoc day (S7, S8) deu gay regression vi thay doi qua nhieu thing cung luc.
+- Depth 8 khi <= 4 rects la thay doi TOI THIEU: chi +2 ply o cuoi game.
+- Khi chi con 0-4 rects, branching factor rat nho (2-4), depth 8 chi ton them ~100-200ms.
+
+### Self-play test (5 games, input.txt)
+
+| Game | Result | Cells (FIRST-SECOND) | Turns | Max time |
+|------|--------|---------------------|-------|----------|
+| 1    | WIN    | 72-44               | 47    | 426ms    |
+| 2    | WIN    | 72-44               | 47    | 560ms    |
+| 3    | WIN    | 72-44               | 47    | 527ms    |
+| 4    | WIN    | 72-44               | 47    | 438ms    |
+| 5    | WIN    | 72-44               | 47    | 436ms    |
+
+**Summary: 5W 0L (72-44, 560ms) - khong regression**
+
+### Battle test (14 boards vs mushroom_test.exe, old boards)
+
+**Result: 10W / 1D / 3L (71%)** — cai thien tu S6 baseline 57% (8W 6L)
+
+### So sanh
+
+| Metric | S6 baseline | S9 (depth 8 endgame) | Change |
+|--------|-----------|----------------------|--------|
+| Win rate | 57% (8W 6L) | 71% (10W 1D 3L) | +14% |
+| Total cells | - | 752 | - |
+| Cells margin | +124 | +124 | 0 |
+| Max time | ~425ms | ~560ms | +135ms |
+
+### Insight
+- Bai hoc lon nhat sau 9 sessions: **thay doi cang nho cang tot**.
+- 3 AI (Claude, ChatGPT, Gemini) deu goi y endgame search + bounding box + mobility nhung implement phuc tap gay regression.
+- Chinh 1 thay doi nho (depth 8 khi <= 4 rects) da cai thien win rate +14%.
+- Co the optimize them: tang depth 8 -> 10 khi <= 4 rects, hoac endgame solver hoan chinh khi <= 8 rects.

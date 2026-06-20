@@ -1,16 +1,16 @@
 // ============================================================
-// Change Log — moi lan update code deu ghi lai o day
+// Change Log ï¿½ moi lan update code deu ghi lai o day
 // ============================================================
-// Session 3 — 2026-06-20
+// Session 3 ï¿½ 2026-06-20
 //   Fix: AI pass som du con nuoc di hop le
 //   - selectMove(root): Xoa block "Try passing". Neu con rect, luon danh.
 //   - alphaBeta: Chuyen "Try passing" xuong sau "Try moves".
 //   Result: 5W 0L self-play, 72-44 cells, max 355ms (truoc: 2W 1L, 753ms)
-// Session 6 — 2026-06-20
+// Session 6 ï¿½ 2026-06-20
 //   Optimize findValidRects (incremental colSum + early skip) + merge game-over check
 //   Result: self-play 5W 0L (72-44, 47t, 425ms), battle 9W 5L (64%)
 // ============================================================
-#define VERSION_STR "mushroom_ai_v6_20260620"
+#define VERSION_STR "mushroom_ai_v6_final"
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -370,7 +370,7 @@ struct Solver {
             if (alpha >= beta) break;
         }
 
-        // Try passing last — chi hieu qua khi opponent cung pass (double pass)
+        // Try passing last ï¿½ chi hieu qua khi opponent cung pass (double pass)
         {
             Board next = b;
             int v = -alphaBeta(next, depth - 1, -beta, -alpha, opp, true, timeLimit);

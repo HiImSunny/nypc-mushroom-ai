@@ -96,10 +96,15 @@ if __name__ == "__main__":
     print(f"{'Game':>6} {'Result':>20} {'Our cells':>10} {'Opp cells':>10} {'Turns':>6} {'Max ms':>7}")
     print("-" * 65)
 
+    actual_games = 0
     for i in range(1, n + 1):
         log_path = os.path.join(log_dir, f"{i}.txt")
         if not os.path.exists(log_path):
             log_path = os.path.join(log_dir, f"{i} (1).txt")
+        if not os.path.exists(log_path):
+            print(f"{i:>6} {'SKIP':>20} {'-':>10} {'-':>10} {'-':>6} {'-':>7}  (file not found)")
+            continue
+        actual_games += 1
         board_rows = extract_board_from_log(log_path)
 
         valid, our, opp, turns, maxt, status = run_game(board_rows, exec1, exec2)
@@ -121,8 +126,8 @@ if __name__ == "__main__":
         print(f"{i:>6} {result:>20} {our:>10} {opp:>10} {turns:>6} {maxt:>7}")
 
     print("-" * 65)
-    print(f"\nTong ket: {wins}W / {draws}D / {losses}L ({wins/n*100:.0f}% win rate)")
-    if n > 0:
-        print(f"TB turns: {total_turns/n:.1f}, Max per-move time: {total_max_time}ms")
+    print(f"\nRan {actual_games} boards. Tong ket: {wins}W / {draws}D / {losses}L ({wins/max(1,actual_games)*100:.0f}% win rate)")
+    if actual_games > 0:
+        print(f"TB turns: {total_turns/max(1,actual_games):.1f}, Max per-move time: {total_max_time}ms")
         print(f"Total our cells: {total_our_cells}, Total opp cells: {total_opp_cells}")
         print(f"Cells margin: +{total_our_cells - total_opp_cells} ({'+' if total_our_cells > total_opp_cells else ''}{(total_our_cells-total_opp_cells)/total_opp_cells*100:.1f}%)")

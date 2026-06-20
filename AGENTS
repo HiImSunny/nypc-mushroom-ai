@@ -1,29 +1,29 @@
-﻿# AGENTS Log — Mushroom AI (NYPC Hackathon)
+# AGENTS Log � Mushroom AI (NYPC Hackathon)
 
-Mục đích: Ghi lại mọi lần sửa code AI, kết quả performance (win rate, thời gian suy nghĩ, depth), và
-insights để tối ưu cho các lần sửa tiếp theo.
+M?c d�ch: Ghi l?i m?i l?n s?a code AI, k?t qu? performance (win rate, th?i gian suy nghi, depth), v�
+insights d? t?i uu cho c�c l?n s?a ti?p theo.
 
-## Cách đo performance
+## C�ch do performance
 
-- **batch_test.py <n> <input> <exec>**: Chạy n game self-play (cùng executable), đếm số WIN/LOSS/DRAW
-  cho FIRST player (do FIRST đi trước có lợi thế, xem tỉ lệ thắng của nó).
-- **simulate.py <input> <log> <exec1> <exec2>**: Chạy 1 game giữa 2 executable khác nhau (ví dụ: bản cũ vs bản mới).
-- Metric chính:
-  - Win rate (FIRST player trong self-play, hoặc bản mới vs bản cũ)
-  - Số turns trung bình (game càng ngắn càng tốt — ít nước đi lãng phí)
-  - Max time per move (càng thấp càng tốt)
-  - Search depth đạt được
+- **batch_test.py <n> <input> <exec>**: Ch?y n game self-play (c�ng executable), d?m s? WIN/LOSS/DRAW
+  cho FIRST player (do FIRST di tru?c c� l?i th?, xem t? l? th?ng c?a n�).
+- **simulate.py <input> <log> <exec1> <exec2>**: Ch?y 1 game gi?a 2 executable kh�c nhau (v� d?: b?n cu vs b?n m?i).
+- Metric ch�nh:
+  - Win rate (FIRST player trong self-play, ho?c b?n m?i vs b?n cu)
+  - S? turns trung b�nh (game c�ng ng?n c�ng t?t � �t nu?c di l�ng ph�)
+  - Max time per move (c�ng th?p c�ng t?t)
+  - Search depth d?t du?c
 
 ## Codebase overview
 
-- `main.cpp` (513 dòng): AI chính. Negamax alpha-beta + transposition table + iterative deepening.
+- `main.cpp` (513 d�ng): AI ch�nh. Negamax alpha-beta + transposition table + iterative deepening.
   - Evaluate function: territory (x12), connectedness (x4), center proximity, adjacent mushrooms (x1)
-  - Iterative deepening: depth 2, 4, 6 (tối đa depth 6)
+  - Iterative deepening: depth 2, 4, 6 (t?i da depth 6)
   - Move ordering: heuristic scoreRect (swing + efficiency + position)
-  - Top-K pruning: chỉ xét top 12-15 moves + pass
+  - Top-K pruning: ch? x�t top 12-15 moves + pass
   - Transposition table: 8K entries
-  - Time management: budget = min(remaining - 300ms, remaining / estMovesLeft), tối thiểu 100ms
-  - `mushroom.exe` / `mushroom_static.exe` — compiled binary
+  - Time management: budget = min(remaining - 300ms, remaining / estMovesLeft), t?i thi?u 100ms
+  - `mushroom.exe` / `mushroom_static.exe` � compiled binary
 - `batch_test.py`: self-play test runner
 - `simulate.py`: two-executable game runner
 - `validate.py`: log validator
@@ -36,7 +36,7 @@ insights để tối ưu cho các lần sửa tiếp theo.
 - Ghi vao main.cpp truoc giup biet ngay file da duoc update hay chua ma khong can mo AGENTS.
 - Format trong main.cpp:
 
-  // Session <N> — <ngay>
+  // Session <N> � <ngay>
   //   <tom tat>
   //   - <change 1>
   //   - <change 2>
@@ -50,7 +50,7 @@ insights để tối ưu cho các lần sửa tiếp theo.
 - TT size: 8K entries
 
 ================================================================================
-## Session 1 — 2026-06-20
+## Session 1 � 2026-06-20
 ================================================================================
 
 ### Changes
@@ -64,7 +64,7 @@ insights để tối ưu cho các lần sửa tiếp theo.
 - (Chua co)
 
 ================================================================================
-## Session 2 — 2026-06-20 (Battle Test: mushroom.exe vs mushroom_test.exe)
+## Session 2 � 2026-06-20 (Battle Test: mushroom.exe vs mushroom_test.exe)
 ================================================================================
 
 ### Changes
@@ -111,7 +111,7 @@ insights để tối ưu cho các lần sửa tiếp theo.
    - Evaluate function: opponent idle => AI can greedy take cells
 
 ================================================================================
-## Session 3 — 2026-06-20 (Fix: Remove premature pass at root)
+## Session 3 � 2026-06-20 (Fix: Remove premature pass at root)
 ================================================================================
 
 ### Changes
@@ -157,7 +157,7 @@ insights để tối ưu cho các lần sửa tiếp theo.
    - Toi uu toc do findValidRects (sliding window thay vi brute force).
 
 ================================================================================
-## Session 4 — 2026-06-20 (Battle Test after Session 3 fix)
+## Session 4 � 2026-06-20 (Battle Test after Session 3 fix)
 ================================================================================
 
 ### Changes
@@ -209,7 +209,7 @@ insights để tối ưu cho các lần sửa tiếp theo.
 3. 6 game thua co cung pattern: opponent tu dong an duoc 44-69 cell du chi take 0.001-1.7s. AI bi pass o cac nhanh search sau va mat luot.
 4. **Da thu**: Xoa pass khoi alphaBeta hoan toan => FAIL (0W 5L). Pass trong search tree la bat buoc de explore nhanh game-over. Chi nen fix pass o root (Session 3).
 ================================================================================
-## Session 5 — 2026-06-20 (Failed experiment + revert + convention docs)
+## Session 5 � 2026-06-20 (Failed experiment + revert + convention docs)
 ================================================================================
 
 ### Changes (da revert)
@@ -229,14 +229,14 @@ insights để tối ưu cho các lần sửa tiếp theo.
 **Summary: 5W 0L 0D** (tro ve dung nhu Session 3)
 Cells: 72-44, turns: 47, max time: 424ms
 ================================================================================
-## Session 6 — 2026-06-20 (Optimize findValidRects + merge game-over check)
+## Session 6 � 2026-06-20 (Optimize findValidRects + merge game-over check)
 ================================================================================
 
 ### Changes
 1. **findValidRects**: Incremental colSum (them dong thay recompute tu prefix sums)
    - Cu: colSum[c] = prefix[r2+1][c+1] - prefix[r1][c+1] - prefix[r2+1][c] + prefix[r1][c] (4 lookups)
    - Moi: colSum[c] += grid[r2][c] (1 lookup) khi r2 tang
-   - Giam tu O(ROWS² * COLS * 4) xuong O(ROWS * COLS + ROWS²/2 * COLS * 1)
+   - Giam tu O(ROWS� * COLS * 4) xuong O(ROWS * COLS + ROWS�/2 * COLS * 1)
 
 2. **findValidRects**: Early skip neu tong mushroom trong [r1..r2] < SUM_TARGET
    - Dung prefix[r2+1][COLS] - prefix[r1][COLS] < 10 de skip row range khong the co rect
@@ -318,7 +318,7 @@ Cells: 72-44, turns: 47, max time: 424ms
   - Version in ra cerr khi binary khoi dong
 
 ================================================================================
-## Session 7 — 2026-06-20 (Failed experiments: evaluate tuning + killer + wider search)
+## Session 7 � 2026-06-20 (Failed experiments: evaluate tuning + killer + wider search)
 ================================================================================
 
 ### Changes (tat ca da revert)
@@ -327,7 +327,7 @@ Cells: 72-44, turns: 47, max time: 424ms
 3. **Wider search**: K 12->14 alphaBeta, 15->18 root -> ton nhieu time hon, khong tim duoc move tot hon
 
 ### Battle test (tren 13 new boards)
-- **7W 0D 6L (54%)** — giam so voi S6 baseline (77%)
+- **7W 0D 6L (54%)** � giam so voi S6 baseline (77%)
 - Max time: 812ms
 
 ### Bai hoc
@@ -336,7 +336,7 @@ Cells: 72-44, turns: 47, max time: 424ms
 - Can revert ngay khi thay regression
 
 ================================================================================
-## Session 8 — 2026-06-20 (Failed experiments: TT 16K + budget + depth 8 + adjMush + simplified eval)
+## Session 8 � 2026-06-20 (Failed experiments: TT 16K + budget + depth 8 + adjMush + simplified eval)
 ================================================================================
 
 ### Changes (tat ca da revert ve S6 baseline)
@@ -347,7 +347,7 @@ Cells: 72-44, turns: 47, max time: 424ms
 
 3. **Depth 8 adaptive**: Thu depth 8 khi budget > 300ms. Time budget khong du => **1W 4L** (1312ms max, search bi partial).
 
-4. **adjMush x2 (khong doi center)**: **0W 5L** — AI overvalue expansion near mushrooms.
+4. **adjMush x2 (khong doi center)**: **0W 5L** � AI overvalue expansion near mushrooms.
 
 5. **scoreRect swing*3**: Tang trong so swing trong move ordering. **0W 5L**.
 
@@ -365,7 +365,7 @@ Cells: 72-44, turns: 47, max time: 424ms
 - Can mot huong tiep can khac de vuot qua 77% (vd: opening book, endgame tablebase, hay search algorithm rewrite).
 
 ================================================================================
-## Session 9 — 2026-06-20 (Depth 8 endgame khi <= 4 rects - THANH CONG!)
+## Session 9 � 2026-06-20 (Depth 8 endgame khi <= 4 rects - THANH CONG!)
 ================================================================================
 
 ### Changes
@@ -392,7 +392,7 @@ Cells: 72-44, turns: 47, max time: 424ms
 
 ### Battle test (14 boards vs mushroom_test.exe, old boards)
 
-**Result: 10W / 1D / 3L (71%)** — cai thien tu S6 baseline 57% (8W 6L)
+**Result: 10W / 1D / 3L (71%)** � cai thien tu S6 baseline 57% (8W 6L)
 
 ### So sanh
 
@@ -408,3 +408,53 @@ Cells: 72-44, turns: 47, max time: 424ms
 - 3 AI (Claude, ChatGPT, Gemini) deu goi y endgame search + bounding box + mobility nhung implement phuc tap gay regression.
 - Chinh 1 thay doi nho (depth 8 khi <= 4 rects) da cai thien win rate +14%.
 - Co the optimize them: tang depth 8 -> 10 khi <= 4 rects, hoac endgame solver hoan chinh khi <= 8 rects.
+
+================================================================================
+## Session 10 � 2026-06-21 (scoreRect: ownCells penalty + immediateGain cho SECOND)
+================================================================================
+
+### Changes
+1. **scoreRect**: Th�m ownCells * 2 penalty � ray t? chose c?n did tren anh? ch?a nhL?u � d� sq? h?u c?a m�nh sU b? lo?i kh?i top-K.
+2. **scoreRect**: Th�m immediateRectGain khi bot l� SECOND: reward rect d?a tr�n rea - ownCells + oppCells d? uu ti�n nu?m gi?t d?t d?i phuong.
+
+### Battle test (14 boards)
+
+| Chi?u | Th?ng | Thua | Win rate | Cells margin |
+|-------|-------|------|----------|-------------|
+
+================================================================================
+## Session 10 � 2026-06-21 (scoreRect: ownCells penalty + immediateGain for SECOND)
+================================================================================
+
+### Changes
+1. **scoreRect**: Added ownCells * 2 penalty in move ordering score. Rectangles containing
+   many already-owned cells are deprioritized in top-K, avoiding wasted search on self-overlap.
+2. **scoreRect**: Added immediateRectGain bonus when bot is SECOND:
+   formula = area - ownCells + oppCells. Rewards stealing opponent territory when behind.
+
+### Battle test (14 boards vs mushroom_test.exe)
+
+| Direction | Wins | Losses | Win rate | Cells margin |
+|-----------|------|--------|----------|-------------|
+| FIRST     | 12   | 2      | 86%      | +148 (+23.6%) |
+| SECOND    | 7    | 7      | 50%      | -60 (-8.5%) |
+
+### Self-play (input.txt, 5 games)
+- 5W 0L (74-34, 43 turns, 484ms max time)
+
+### Comparison vs baseline (v6 + S11)
+
+| Metric | Baseline FIRST | v18 FIRST | Change |
+|--------|---------------|-----------|--------|
+| Win rate | 57% (8W 5L 1D) | 86% (12W 2L) | **+29%** |
+| Cells margin | +53 (+8.1%) | +148 (+23.6%) | **+95 cells** |
+| Max time | 815ms | 762ms | -53ms |
+
+### Insights
+- ownCells * 2 penalty is the key: it prunes wasteful self-overlap rects from top-K,
+  letting search focus on expansion and stealing.
+- immediateRectGain helps SECOND recover in endgame but boards 2 and 10 remain hard
+  (loses 28-59 and 26-64). Needs evaluate tuning or search depth improvement.
+- FIRST win rate 12/14 (86%) is the best so far. SECOND steady at 50%.
+
+================================================================================

@@ -316,3 +316,50 @@ Cells: 72-44, turns: 47, max time: 424ms
 - **VERSION_STR** duoc define o dau main.cpp de ban co the kiem tra binary dang chay la phien ban nao:
   - strings mushroom_static.exe | findstr mushroom_ai (tren Windows)
   - Version in ra cerr khi binary khoi dong
+
+================================================================================
+## Session 7 — 2026-06-20 (Failed experiments: evaluate tuning + killer + wider search)
+================================================================================
+
+### Changes (tat ca da revert)
+1. **Evaluate tuning**: adjMush 1->2 + center bonus 6->12 -> **0W 5L self-play**
+2. **Killer heuristic**: Store moves causing beta cutoff -> khong hieu qua vi rects thay doi sau moi move
+3. **Wider search**: K 12->14 alphaBeta, 15->18 root -> ton nhieu time hon, khong tim duoc move tot hon
+
+### Battle test (tren 13 new boards)
+- **7W 0D 6L (54%)** — giam so voi S6 baseline (77%)
+- Max time: 812ms
+
+### Bai hoc
+- Killer heuristic khong ap dung duoc cho game nay vi rects phu thuoc vao board state
+- Wider search ton thoi gian ma khong tim duoc nuoc di tot hon
+- Can revert ngay khi thay regression
+
+================================================================================
+## Session 8 — 2026-06-20 (Failed experiments: TT 16K + budget + depth 8 + adjMush + simplified eval)
+================================================================================
+
+### Changes (tat ca da revert ve S6 baseline)
+
+1. **TT 16K**: 1<<13 -> 1<<14. Battle: 9W 1D 3L (69%) vs S6 10W 0D 3L (77%). Khong cai thien dang ke.
+
+2. **Budget phan phoi cho iterative deepening**: depth 2: 5%, 4: 20%, 6: 80%. Bug: khi budget nho, depthBudget < 50ms => khong search depth nao => **0W 5L**.
+
+3. **Depth 8 adaptive**: Thu depth 8 khi budget > 300ms. Time budget khong du => **1W 4L** (1312ms max, search bi partial).
+
+4. **adjMush x2 (khong doi center)**: **0W 5L** — AI overvalue expansion near mushrooms.
+
+5. **scoreRect swing*3**: Tang trong so swing trong move ordering. **0W 5L**.
+
+6. **Simplified evaluate**: Chi territory x20 + adjMush (bo connectedness, center). **0W 5L**.
+
+### Baseline S6 final
+- **Self-play: 5W 0L (72-44, 47 turns, 419ms)**
+- **Battle (13 new boards): 10W 0D 3L (77%)**
+- VERSION_STR: mushroom_ai_v6_final
+
+### Insights
+- Evaluate function hien tai (territory x12 + connectedness x4 + center + adjMush x1) da kha optimal.
+- Moi thay doi evaluate deu gay regression (AI mat can bang giua cac yeu to).
+- findValidRects optimization (Session 6) la change duy nhat co hieu qua thuc su.
+- Can mot huong tiep can khac de vuot qua 77% (vd: opening book, endgame tablebase, hay search algorithm rewrite).

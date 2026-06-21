@@ -19,7 +19,7 @@
 //   Improve: evaluate() adjMush weight 1->4
 //   Optimize: alphaBeta width depth-dependent (K=10/6)
 // ============================================================
-#define VERSION_STR "mushroom_ai_v18_20260621"
+#define VERSION_STR "mushroom_ai_v19_20260621"
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -309,7 +309,7 @@ struct Solver {
             scored.push_back({s, r});
         }
         sort(scored.begin(), scored.end(), [](auto& a, auto& b) { return a.first > b.first; });
-        int maxK = (depth <= 2) ? 12 : (depth <= 4) ? 8 : 6;
+        int maxK = (depth <= 2) ? 8 : (depth <= 4) ? 6 : 4;
         int K = min((int)scored.size(), maxK);
         int originalAlpha = alpha;
         int bestScore = -INF;
@@ -336,15 +336,15 @@ struct Solver {
         tt.clear();
         auto rects = b.findValidRects();
         if (rects.empty()) return {-1, -1, -1, -1};
-        int mushLeft = b.countMushrooms();
-        int64_t budget = min((int64_t)2500, remainingTime - SAFETY_BUFFER_MS);
-        budget = min(budget, (remainingTime - SAFETY_BUFFER_MS) / 2);
-        budget = max(budget, (int64_t)500);
+        //int mushLeft = b.countMushrooms();
+        int64_t budget = (remainingTime - SAFETY_BUFFER_MS) / 4;
+        budget = max(budget, (int64_t)75);
+        budget = min(budget, (int64_t)800);
         vector<pair<int, Rect>> scored;
         for (auto& r : rects) scored.push_back({scoreRect(b, r, myPlayer), r});
         sort(scored.begin(), scored.end(), [](auto& a, auto& b) { return a.first > b.first; });
         Rect bestMove = scored[0].second;
-        int maxDepth = ((int)scored.size() <= 4) ? 14 : 10;
+        int maxDepth = ((int)scored.size() <= 4) ? 10 : 8;
         for (int depth = 2; depth <= maxDepth; depth += 2) {
             auto now = steady_clock::now();
             int64_t elapsed = duration_cast<milliseconds>(now - turnStart).count();
@@ -352,7 +352,7 @@ struct Solver {
             if (depthBudget < 10) break;
             int bestScore = -INF;
             Rect depthBest = {-1, -1, -1, -1};
-            int K = min((int)scored.size(), 15);
+            int K = min((int)scored.size(), 8);
             for (int i = 0; i < K; i++) {
                 if (timeUp(depthBudget)) break;
                 auto& r = scored[i].second;
@@ -420,3 +420,4 @@ int main() {
     }
     return 0;
 }
+

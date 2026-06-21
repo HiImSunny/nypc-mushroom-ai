@@ -12,8 +12,14 @@
 //   Result: self-play 5W 0L (72-44, 560ms), battle 10W 1D 3L (71%)
 // Session 15 - 2026-06-21
 //   Clean rewrite ve Session 9 baseline sau khi file bi hong
+// Session 16 - 2026-06-21
+//   Fix: pass bug trong alphaBeta - chi pass khi khong con nuoc di
+//   Fix: time mgmt - dung (time-SAFETY)/estMovesLeft, bo 0.5 early break
+//   Improve: scoreRect mushroom*3, bo int div, swing + emptyCells
+//   Improve: evaluate() adjMush weight 1->4
+//   Optimize: alphaBeta width depth-dependent (K=10/6)
 // ============================================================
-#define VERSION_STR "mushroom_ai_v15_20260621"
+#define VERSION_STR "mushroom_ai_v16_20260621"
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -25,25 +31,21 @@
 #include <random>
 using namespace std;
 using namespace chrono;
-
 const int ROWS = 10;
 const int COLS = 17;
 const int SUM_TARGET = 10;
-const int SAFETY_BUFFER_MS = 300;
+const int SAFETY_BUFFER_MS = 100;
 const int TT_SIZE = 1 << 13;
 const int INF = 1e9;
-
 struct Rect {
     int r1, c1, r2, c2;
     bool operator==(const Rect& o) const {
         return r1==o.r1 && c1==o.c1 && r2==o.r2 && c2==o.c2;
     }
 };
-
 static uint64_t zobristGrid[ROWS][COLS][10];
 static uint64_t zobristOwner[ROWS][COLS][3];
 static bool zobristInitialized = false;
-
 void initZobrist() {
     if (zobristInitialized) return;
     mt19937_64 rng(1234567890ULL);
@@ -57,7 +59,6 @@ void initZobrist() {
                 zobristOwner[r][c][o] = rng();
     zobristInitialized = true;
 }
-
 struct Board {
     int8_t grid[ROWS][COLS];
     int8_t owner[ROWS][COLS];
@@ -65,7 +66,6 @@ struct Board {
     int rowMush[ROWS][COLS + 1];
     int colMush[ROWS + 1][COLS];
     uint64_t hash;
-
     void recomputeHash() {
         hash = 0;
         for (int r = 0; r < ROWS; r++)
@@ -74,7 +74,6 @@ struct Board {
                 hash ^= zobristOwner[r][c][owner[r][c]];
             }
     }
-
     void computePrefixSums() {
         for (int r = 0; r <= ROWS; r++) {
             for (int c = 0; c <= COLS; c++) {
@@ -93,11 +92,9 @@ struct Board {
                 colMush[r + 1][c] = colMush[r][c] + (grid[r][c] > 0 ? 1 : 0);
         }
     }
-
     int rectSum(int r1, int c1, int r2, int c2) const {
         return prefix[r2 + 1][c2 + 1] - prefix[r1][c2 + 1] - prefix[r2 + 1][c1] + prefix[r1][c1];
     }
-
     bool hasMushroomOnSides(int r1, int c1, int r2, int c2) const {
         if (rowMush[r1][c2 + 1] - rowMush[r1][c1] == 0) return false;
         if (rowMush[r2][c2 + 1] - rowMush[r2][c1] == 0) return false;
@@ -105,11 +102,9 @@ struct Board {
         if (colMush[r2 + 1][c2] - colMush[r1][c2] == 0) return false;
         return true;
     }
-
     bool isValidRect(int r1, int c1, int r2, int c2) const {
         return rectSum(r1, c1, r2, c2) == SUM_TARGET && hasMushroomOnSides(r1, c1, r2, c2);
     }
-
     void applyMove(int r1, int c1, int r2, int c2, int player) {
         for (int r = r1; r <= r2; r++) {
             for (int c = c1; c <= c2; c++) {
@@ -123,7 +118,6 @@ struct Board {
         }
         computePrefixSums();
     }
-
     int countCells(int player) const {
         int cnt = 0;
         for (int r = 0; r < ROWS; r++)
@@ -131,7 +125,6 @@ struct Board {
                 if (owner[r][c] == player) cnt++;
         return cnt;
     }
-
     int countMushrooms() const {
         int cnt = 0;
         for (int r = 0; r < ROWS; r++)
@@ -139,7 +132,6 @@ struct Board {
                 if (grid[r][c] > 0) cnt++;
         return cnt;
     }
-
     int evaluate(int player) const {
         int opp = (player == 1) ? 2 : 1;
         int myCells = countCells(player);
@@ -184,10 +176,9 @@ struct Board {
                 }
             }
         }
-        score += (myAdjMush - oppAdjMush) * 1;
+        score += (myAdjMush - oppAdjMush) * 4;
         return score;
     }
-
     vector<Rect> findValidRects() const {
         vector<Rect> result;
         int colSum[COLS];
@@ -217,7 +208,6 @@ struct Board {
         return result;
     }
 };
-
 struct TTEntry {
     uint64_t hash;
     int8_t depth;
@@ -226,7 +216,6 @@ struct TTEntry {
     Rect bestMove;
     bool valid;
 };
-
 class TranspositionTable {
 public:
     TTEntry entries[TT_SIZE];
@@ -243,41 +232,36 @@ public:
         e.valid = true;
     }
 };
-
 struct Solver {
     int myPlayer;
     int oppPlayer;
     steady_clock::time_point turnStart;
     int64_t remainingTime;
     TranspositionTable tt;
-
     Solver(int player) : myPlayer(player), oppPlayer((player == 1) ? 2 : 1) {}
-
     bool timeUp(int64_t timeLimit) const {
         auto now = steady_clock::now();
         return duration_cast<milliseconds>(now - turnStart).count() >= timeLimit;
     }
-
     int scoreRect(const Board& b, const Rect& r, int player) const {
         int opp = (player == 1) ? 2 : 1;
-        int oppEmpty = 0, mushrooms = 0;
+        int oppEmpty = 0, ownCells = 0, mushrooms = 0;
         int area = (r.r2 - r.r1 + 1) * (r.c2 - r.c1 + 1);
         for (int rr = r.r1; rr <= r.r2; rr++) {
             for (int c = r.c1; c <= r.c2; c++) {
                 if (b.owner[rr][c] == opp) oppEmpty++;
+                else if (b.owner[rr][c] == player) ownCells++;
                 if (b.grid[rr][c] > 0) mushrooms++;
             }
         }
-        int swing = mushrooms + 2 * oppEmpty;
-        int emptyCells = area - mushrooms;
-        int efficiency = (mushrooms > 0) ? (emptyCells / mushrooms) : emptyCells;
+        int swing = mushrooms * 3 + oppEmpty * 2;
+        int emptyCells = area - mushrooms - oppEmpty - ownCells;
         int centerR = (r.r1 + r.r2) / 2;
         int centerC = (r.c1 + r.c2) / 2;
         int distFromCenter = abs(centerR - 4) + abs(centerC - 8);
         int posBonus = max(0, 12 - distFromCenter);
-        return swing + efficiency + posBonus;
+        return swing + emptyCells + posBonus;
     }
-
     int alphaBeta(Board& b, int depth, int alpha, int beta, int player, bool prevPassed, int64_t timeLimit) {
         if (timeUp(timeLimit)) return b.evaluate(player);
         TTEntry* tte = tt.get(b.hash);
@@ -286,6 +270,12 @@ struct Solver {
         auto rects = b.findValidRects();
         if (prevPassed && rects.empty()) return b.evaluate(player);
         int opp = (player == 1) ? 2 : 1;
+        if (rects.empty()) {
+            Board next = b;
+            int v = -alphaBeta(next, depth - 1, -beta, -alpha, opp, true, timeLimit);
+            tt.store(b.hash, depth, v, 0, {-1,-1,-1,-1});
+            return v;
+        }
         Rect ttMove = {-1,-1,-1,-1};
         if (ttHit && tte->bestMove.r1 >= 0) ttMove = tte->bestMove;
         vector<pair<int, Rect>> scored;
@@ -296,7 +286,8 @@ struct Solver {
             scored.push_back({s, r});
         }
         sort(scored.begin(), scored.end(), [](auto& a, auto& b) { return a.first > b.first; });
-        int K = min((int)scored.size(), 12);
+        int maxK = (depth <= 2) ? 10 : 6;
+        int K = min((int)scored.size(), maxK);
         int originalAlpha = alpha;
         int bestScore = -INF;
         Rect bestMove = {-1,-1,-1,-1};
@@ -310,27 +301,20 @@ struct Solver {
             alpha = max(alpha, v);
             if (alpha >= beta) break;
         }
-        {
-            Board next = b;
-            int v = -alphaBeta(next, depth - 1, -beta, -alpha, opp, true, timeLimit);
-            if (v > bestScore) { bestScore = v; bestMove = {-1,-1,-1,-1}; }
-            alpha = max(alpha, v);
-        }
         int flag = 0;
         if (bestScore <= originalAlpha) flag = 2;
         else if (bestScore >= beta) flag = 1;
         tt.store(b.hash, depth, bestScore, flag, bestMove);
         return bestScore;
     }
-
     Rect selectMove(Board& b, int64_t t1) {
         turnStart = steady_clock::now();
         remainingTime = t1;
         tt.clear();
         int mushLeft = b.countMushrooms();
-        int estMovesLeft = max(5, mushLeft / 10);
-        int64_t budget = min(remainingTime - SAFETY_BUFFER_MS, remainingTime / max(estMovesLeft, 1));
-        budget = max(budget, (int64_t)100);
+        int estMovesLeft = max(3, (mushLeft + 9) / 10);
+        int64_t budget = (remainingTime - SAFETY_BUFFER_MS) / max(estMovesLeft, 1);
+        budget = max(budget, (int64_t)50);
         auto rects = b.findValidRects();
         if (rects.empty()) return {-1, -1, -1, -1};
         vector<pair<int, Rect>> scored;
@@ -341,9 +325,8 @@ struct Solver {
         for (int depth = 2; depth <= maxDepth; depth += 2) {
             auto now = steady_clock::now();
             int64_t elapsed = duration_cast<milliseconds>(now - turnStart).count();
-            if (elapsed >= budget * 0.5) break;
             int64_t depthBudget = budget - elapsed;
-            if (depthBudget < 50) break;
+            if (depthBudget < 30) break;
             int bestScore = -INF;
             Rect depthBest = {-1, -1, -1, -1};
             int K = min((int)scored.size(), 15);
@@ -360,7 +343,6 @@ struct Solver {
         return bestMove;
     }
 };
-
 int main() {
     initZobrist();
     ios_base::sync_with_stdio(false);

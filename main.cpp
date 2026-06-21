@@ -19,7 +19,7 @@
 //   Improve: evaluate() adjMush weight 1->4
 //   Optimize: alphaBeta width depth-dependent (K=10/6)
 // ============================================================
-#define VERSION_STR "mushroom_ai_v19_20260621"
+#define VERSION_STR "mushroom_ai_v20_20260621"
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -177,7 +177,7 @@ struct Board {
             }
         }
         score += (myAdjMush - oppAdjMush) * 6;
-        score += (myAdjMush - oppAdjMush) * 6;
+
         int myCompact = 0, oppCompact = 0;
         for (int r = 0; r < ROWS; r++) {
             for (int c = 0; c < COLS; c++) {
@@ -283,7 +283,7 @@ struct Solver {
         int centerC = (r.c1 + r.c2) / 2;
         int distFromCenter = abs(centerR - 4) + abs(centerC - 8);
         int posBonus = max(0, 12 - distFromCenter);
-        return swing + emptyCells * 2 + adjOwn + posBonus;
+        return swing * 3 + emptyCells + adjOwn * 2 + posBonus * 2;
     }
     int alphaBeta(Board& b, int depth, int alpha, int beta, int player, bool prevPassed, int64_t timeLimit) {
         if (timeUp(timeLimit)) return b.evaluate(player);
@@ -309,7 +309,7 @@ struct Solver {
             scored.push_back({s, r});
         }
         sort(scored.begin(), scored.end(), [](auto& a, auto& b) { return a.first > b.first; });
-        int maxK = (depth <= 2) ? 8 : (depth <= 4) ? 6 : 4;
+        int maxK = (depth <= 2) ? 10 : (depth <= 4) ? 7 : 5;
         int K = min((int)scored.size(), maxK);
         int originalAlpha = alpha;
         int bestScore = -INF;
@@ -337,9 +337,9 @@ struct Solver {
         auto rects = b.findValidRects();
         if (rects.empty()) return {-1, -1, -1, -1};
         //int mushLeft = b.countMushrooms();
-        int64_t budget = (remainingTime - SAFETY_BUFFER_MS) / 4;
-        budget = max(budget, (int64_t)75);
-        budget = min(budget, (int64_t)800);
+        int64_t budget = (remainingTime - SAFETY_BUFFER_MS) / 2;
+        budget = max(budget, (int64_t)150);
+        budget = min(budget, (int64_t)2000);
         vector<pair<int, Rect>> scored;
         for (auto& r : rects) scored.push_back({scoreRect(b, r, myPlayer), r});
         sort(scored.begin(), scored.end(), [](auto& a, auto& b) { return a.first > b.first; });
@@ -352,7 +352,7 @@ struct Solver {
             if (depthBudget < 10) break;
             int bestScore = -INF;
             Rect depthBest = {-1, -1, -1, -1};
-            int K = min((int)scored.size(), 8);
+            int K = min((int)scored.size(), 12);
             for (int i = 0; i < K; i++) {
                 if (timeUp(depthBudget)) break;
                 auto& r = scored[i].second;
@@ -420,4 +420,5 @@ int main() {
     }
     return 0;
 }
+
 

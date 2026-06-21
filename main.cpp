@@ -19,7 +19,7 @@
 //   Improve: evaluate() adjMush weight 1->4
 //   Optimize: alphaBeta width depth-dependent (K=10/6)
 // ============================================================
-#define VERSION_STR "mushroom_ai_v16_20260621"
+#define VERSION_STR "mushroom_ai_v17_20260621"
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -149,7 +149,7 @@ struct Board {
                 }
             }
         }
-        score += (myConn - oppConn) * 4;
+        score += (myConn - oppConn) * 8;
         for (int r = 0; r < ROWS; r++) {
             for (int c = 0; c < COLS; c++) {
                 if (owner[r][c] != 0) {
@@ -176,7 +176,7 @@ struct Board {
                 }
             }
         }
-        score += (myAdjMush - oppAdjMush) * 4;
+        score += (myAdjMush - oppAdjMush) * 6;
         return score;
     }
     vector<Rect> findValidRects() const {
@@ -254,13 +254,22 @@ struct Solver {
                 if (b.grid[rr][c] > 0) mushrooms++;
             }
         }
-        int swing = mushrooms * 3 + oppEmpty * 2;
+        int swing = mushrooms * 3 + oppEmpty * 3 + ownCells * 2;
         int emptyCells = area - mushrooms - oppEmpty - ownCells;
+        int adjOwn = 0;
+        for (int rr = r.r1; rr <= r.r2; rr++) {
+            if (r.c1 > 0 && b.owner[rr][r.c1-1] == player) adjOwn += 2;
+            if (r.c2 < COLS-1 && b.owner[rr][r.c2+1] == player) adjOwn += 2;
+        }
+        for (int c = r.c1; c <= r.c2; c++) {
+            if (r.r1 > 0 && b.owner[r.r1-1][c] == player) adjOwn += 2;
+            if (r.r2 < ROWS-1 && b.owner[r.r2+1][c] == player) adjOwn += 2;
+        }
         int centerR = (r.r1 + r.r2) / 2;
         int centerC = (r.c1 + r.c2) / 2;
         int distFromCenter = abs(centerR - 4) + abs(centerC - 8);
         int posBonus = max(0, 12 - distFromCenter);
-        return swing + emptyCells + posBonus;
+        return swing + emptyCells + adjOwn + posBonus;
     }
     int alphaBeta(Board& b, int depth, int alpha, int beta, int player, bool prevPassed, int64_t timeLimit) {
         if (timeUp(timeLimit)) return b.evaluate(player);
@@ -286,7 +295,7 @@ struct Solver {
             scored.push_back({s, r});
         }
         sort(scored.begin(), scored.end(), [](auto& a, auto& b) { return a.first > b.first; });
-        int maxK = (depth <= 2) ? 10 : 6;
+        int maxK = (depth <= 2) ? 8 : 5;
         int K = min((int)scored.size(), maxK);
         int originalAlpha = alpha;
         int bestScore = -INF;
@@ -312,9 +321,9 @@ struct Solver {
         remainingTime = t1;
         tt.clear();
         int mushLeft = b.countMushrooms();
-        int estMovesLeft = max(3, (mushLeft + 9) / 10);
-        int64_t budget = (remainingTime - SAFETY_BUFFER_MS) / max(estMovesLeft, 1);
-        budget = max(budget, (int64_t)50);
+        int estMovesLeft = mushLeft / 12 + 1;
+        int64_t budget = ((remainingTime - SAFETY_BUFFER_MS) * 2) / max(estMovesLeft, 1);
+        budget = max(budget, (int64_t)150);
         auto rects = b.findValidRects();
         if (rects.empty()) return {-1, -1, -1, -1};
         vector<pair<int, Rect>> scored;

@@ -19,7 +19,7 @@
 //   Improve: evaluate() adjMush weight 1->4
 //   Optimize: alphaBeta width depth-dependent (K=10/6)
 // ============================================================
-#define VERSION_STR "mushroom_ai_v20_20260621"
+#define VERSION_STR "mushroom_ai_v21_20260621"
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -183,10 +183,12 @@ struct Board {
             for (int c = 0; c < COLS; c++) {
                 if (owner[r][c] == player) {
                     int adj = (r>0 && owner[r-1][c]==player) + (r<ROWS-1 && owner[r+1][c]==player) + (c>0 && owner[r][c-1]==player) + (c<COLS-1 && owner[r][c+1]==player);
-                    if (adj >= 3) myCompact += 2;
+                    if (adj >= 3) myCompact += 3;
+                    else if (adj >= 2) myCompact += 1;
                 } else if (owner[r][c] == opp) {
                     int adj = (r>0 && owner[r-1][c]==opp) + (r<ROWS-1 && owner[r+1][c]==opp) + (c>0 && owner[r][c-1]==opp) + (c<COLS-1 && owner[r][c+1]==opp);
-                    if (adj >= 3) oppCompact += 2;
+                    if (adj >= 3) oppCompact += 3;
+                    else if (adj >= 2) oppCompact += 1;
                 }
             }
         }
@@ -268,7 +270,7 @@ struct Solver {
                 if (b.grid[rr][c] > 0) mushrooms++;
             }
         }
-        int swing = mushrooms * 3 + oppEmpty * 3 + ownCells * 2;
+        int swing = mushrooms * 3 + oppEmpty * 4 + ownCells * 1;
         int emptyCells = area - mushrooms - oppEmpty - ownCells;
         int adjOwn = 0;
         for (int rr = r.r1; rr <= r.r2; rr++) {
@@ -283,7 +285,7 @@ struct Solver {
         int centerC = (r.c1 + r.c2) / 2;
         int distFromCenter = abs(centerR - 4) + abs(centerC - 8);
         int posBonus = max(0, 12 - distFromCenter);
-        return swing * 3 + emptyCells + adjOwn * 2 + posBonus * 2;
+        return swing + emptyCells * 8 + adjOwn * 2 + posBonus * 2;
     }
     int alphaBeta(Board& b, int depth, int alpha, int beta, int player, bool prevPassed, int64_t timeLimit) {
         if (timeUp(timeLimit)) return b.evaluate(player);
@@ -420,5 +422,6 @@ int main() {
     }
     return 0;
 }
+
 
 

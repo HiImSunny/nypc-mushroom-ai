@@ -19,7 +19,7 @@
 //   Improve: evaluate() adjMush weight 1->4
 //   Optimize: alphaBeta width depth-dependent (K=10/6)
 // ============================================================
-#define VERSION_STR "mushroom_ai_v24_20260621"
+#define VERSION_STR "mushroom_ai_v30_20260622"
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -136,7 +136,7 @@ struct Board {
         int opp = (player == 1) ? 2 : 1;
         int myCells = countCells(player);
         int oppCells = countCells(opp);
-        int score = (myCells - oppCells) * 12;
+        int score = (myCells - oppCells) * 14;
         int myConn = 0, oppConn = 0;
         for (int r = 0; r < ROWS; r++) {
             for (int c = 0; c < COLS; c++) {
@@ -149,7 +149,7 @@ struct Board {
                 }
             }
         }
-        score += (myConn - oppConn) * 8;
+        score += (myConn - oppConn) * 12;
         for (int r = 0; r < ROWS; r++) {
             for (int c = 0; c < COLS; c++) {
                 if (owner[r][c] != 0) {
@@ -253,8 +253,9 @@ struct Solver {
     int oppPlayer;
     steady_clock::time_point turnStart;
     int64_t remainingTime;
-    TranspositionTable tt;
-    Solver(int player) : myPlayer(player), oppPlayer((player == 1) ? 2 : 1) {}
+    TranspositionTable* tt;
+    Solver(int player) : myPlayer(player), oppPlayer((player == 1) ? 2 : 1) { tt = new TranspositionTable(); }
+    ~Solver() { delete tt; }
     bool timeUp(int64_t timeLimit) const {
         auto now = steady_clock::now();
         return duration_cast<milliseconds>(now - turnStart).count() >= timeLimit;
@@ -266,7 +267,7 @@ struct Solver {
     }
     int alphaBeta(Board& b, int depth, int alpha, int beta, int player, bool prevPassed, int64_t timeLimit) {
         if (timeUp(timeLimit)) return b.evaluate(player);
-        TTEntry* tte = tt.get(b.hash);
+        TTEntry* tte = tt->get(b.hash);
         bool ttHit = tte->valid && tte->hash == b.hash && tte->depth >= depth;
         if (depth == 0) return b.evaluate(player);
         auto rects = b.findValidRects();
@@ -275,7 +276,7 @@ struct Solver {
         if (rects.empty()) {
             Board next = b;
             int v = -alphaBeta(next, depth - 1, -beta, -alpha, opp, true, timeLimit);
-            tt.store(b.hash, depth, v, 0, {-1,-1,-1,-1});
+            tt->store(b.hash, depth, v, 0, {-1,-1,-1,-1});
             return v;
         }
         Rect ttMove = {-1,-1,-1,-1};
@@ -306,16 +307,15 @@ struct Solver {
         int flag = 0;
         if (bestScore <= originalAlpha) flag = 2;
         else if (bestScore >= beta) flag = 1;
-        tt.store(b.hash, depth, bestScore, flag, bestMove);
+        tt->store(b.hash, depth, bestScore, flag, bestMove);
         return bestScore;
     }
     Rect selectMove(Board& b, int64_t t1) {
         turnStart = steady_clock::now();
         remainingTime = t1;
-        tt.clear();
+        tt->clear();
         auto rects = b.findValidRects();
         if (rects.empty()) return {-1, -1, -1, -1};
-        //int mushLeft = b.countMushrooms();
         int64_t budget = (remainingTime - SAFETY_BUFFER_MS) / 8;
         budget = max(budget, (int64_t)75);
         budget = min(budget, (int64_t)500);
@@ -323,7 +323,7 @@ struct Solver {
         for (auto& r : rects) scored.push_back({scoreRect(b, r, myPlayer), r});
         sort(scored.begin(), scored.end(), [](auto& a, auto& b) { return a.first > b.first; });
         Rect bestMove = scored[0].second;
-        int maxDepth = ((int)scored.size() <= 4) ? 10 : 8;
+        int maxDepth = ((int)scored.size() <= 4) ? 12 : 8;
         for (int depth = 2; depth <= maxDepth; depth += 2) {
             auto now = steady_clock::now();
             int64_t elapsed = duration_cast<milliseconds>(now - turnStart).count();

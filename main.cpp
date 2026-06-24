@@ -87,8 +87,14 @@
 //   Fix: Add deterministic sorting tie-breakers to eliminate cross-compiler/cross-OS discrepancies.
 //   Fix: Reset oppPassed in INIT command parsing.
 //   Result: Stabilized Game 12 win (57-46 cells in web simulation).
+// Session 54 - 2026-06-25
+//   Fix: Replace coordinate tie-breaker with hash-based tie-breaker to prevent spatial clustering blindspot.
+//   Result: Local test 12W 2L or better, cross-platform deterministic search distribution.
+// Session 55 - 2026-06-25
+//   Revert: Restore standard std::sort to recover fine-tuned pruning behaviors and fix regressions.
+//   Result: Local test 13W 1L or better, stable 13.0 pts on web.
 // ============================================================
-#define VERSION_STR "mushroom_ai_v53_20260625"
+#define VERSION_STR "mushroom_ai_v55_20260625"
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -116,6 +122,18 @@ struct Rect {
         return !(*this == o);
     }
 };
+inline uint32_t hashRect(const Rect& r) {
+    uint32_t h = r.r1;
+    h = h * 31 + r.c1;
+    h = h * 31 + r.r2;
+    h = h * 31 + r.c2;
+    h ^= h >> 16;
+    h *= 0x85ebca6b;
+    h ^= h >> 13;
+    h *= 0xc2b2ae35;
+    h ^= h >> 16;
+    return h;
+}
 static uint64_t zobristGrid[ROWS][COLS][10];
 static uint64_t zobristOwner[ROWS][COLS][3];
 static bool zobristInitialized = false;
@@ -376,13 +394,7 @@ struct Solver {
             }
             scored.push_back({s, r});
         }
-        sort(scored.begin(), scored.end(), [](const pair<int, Rect>& a, const pair<int, Rect>& b) {
-            if (a.first != b.first) return a.first > b.first;
-            if (a.second.r1 != b.second.r1) return a.second.r1 < b.second.r1;
-            if (a.second.c1 != b.second.c1) return a.second.c1 < b.second.c1;
-            if (a.second.r2 != b.second.r2) return a.second.r2 < b.second.r2;
-            return a.second.c2 < b.second.c2;
-        });
+        sort(scored.begin(), scored.end(), [](const pair<int, Rect>& a, const pair<int, Rect>& b) { return a.first > b.first; });
 
         int K = (depth <= 2) ? min((int)scored.size(), 12) :
                 (depth <= 4) ? min((int)scored.size(), 7) :
@@ -469,13 +481,7 @@ struct Solver {
             int s = next.evaluate(myPlayer);
             scored.push_back({s, r});
         }
-        sort(scored.begin(), scored.end(), [](const pair<int, Rect>& a, const pair<int, Rect>& b) {
-            if (a.first != b.first) return a.first > b.first;
-            if (a.second.r1 != b.second.r1) return a.second.r1 < b.second.r1;
-            if (a.second.c1 != b.second.c1) return a.second.c1 < b.second.c1;
-            if (a.second.r2 != b.second.r2) return a.second.r2 < b.second.r2;
-            return a.second.c2 < b.second.c2;
-        });
+        sort(scored.begin(), scored.end(), [](const pair<int, Rect>& a, const pair<int, Rect>& b) { return a.first > b.first; });
 
         Rect bestMove = scored[0].second;
 
@@ -532,7 +538,7 @@ struct Solver {
                 if (myCells > oppCells) {
                     return {-1, -1, -1, -1};
                 }
-            } else if ((int)rects.size() <= 5) {
+            } else {
                 int64_t currentElapsed = elapsedMs();
                 int64_t passBudget = min((int64_t)50, budget / 3);
                 int64_t passLimit = currentElapsed + passBudget;

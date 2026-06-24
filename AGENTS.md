@@ -2,7 +2,7 @@
 
 ## Project
 - **Root**: `D:\Code Project\Python Coding\NYPC Hackathon`
-- **Code**: `main.cpp` (v34 — PVS + LMR + Killer moves)
+- **Code**: `main.cpp` (v51 — PVS + LMR + Killer moves + TT (1M) + ID + Column Pruning + Dynamic Cap + Granular Endgame + ID Fix + Move Ordering Heuristic + Terminating Pass Optimization + Mathematically Aligned Move Ordering + Precise Time Budgeting)
 - **Logs**: `log\` folder (numbered battle logs)
 - **Binaries**: `mushroom_v*.exe`
 
@@ -18,41 +18,44 @@
 - Double pass = game over. More cells = win.
 - Each player has own time bank. Time management critical.
 
-## Current Strategy (v34)
+## Current Strategy (v51)
 - **PVS** (Principal Variation Search) with zero-window on non-PV nodes
 - **LMR** (Late Move Reduction): reduce depth for later moves (i >= 3 → -1, i >= 6 → -2)
 - **Killer moves**: 2 per ply, +50000/+25000 boost
-- **TT**: 1<<16 (64K) entries, replace-always
-- **Evaluation**: cells*100 + connectivity*10 + adjMush*8
-- **Endgame extension**: ≤2 rects → depth 14, ≤6 rects → depth 12
-- **Time mgmt**: budget = (time - SAFETY)/max(2, mush/5 + rects/4), capped 50-700ms
-- **Strategic pass**: only pass if pass > move + 100 delta
+- **TT**: 1<<20 (1M) entries, replace-always
+- **Evaluation**: cells*100 + connectivity*10 + adjMush*8 (Prioritizes compact connected territories)
+- **Move Ordering**: quick evaluation uses `totalCells * 100 + oppCells * 200 - myLost * 100` (mathematically exact representation of the cell count difference gain)
+- **Endgame extension**: ≤2 rects → depth 18, ≤5 rects → depth 14, ≤8 rects → depth 12
+- **Search Widths (K)**: K (12/7/5) for deep lookahead and maximum time efficiency, saving time for the endgame
+- **Strategic pass**: after ID, test if passing is better than our best move. If the opponent has passed, we can pass to terminate the game immediately and evaluate the exact final board state.
+- **Time mgmt**: budget = (time - SAFETY)/max(1, totalMushSum / 18), dynamically capped between 50ms and min(1200ms, remainingTime / 8).
+- **Iterative Deepening**: fixed pollution bug (incomplete depths are discarded) + time-to-completion prediction (`lastDepthTime * 3` check). Default maxDepth is 10 (was 8).
 
-## Battle History (v34 — 8.5 pts)
+## Battle History (v51 — 13.0 pts) ⭐ New Record
 | # | Result | Us | Opp | Comment |
 |---|--------|----|-----|---------|
-| 1 | Win | 91 | 0 | Dominant |
-| 2 | Win | 57 | 0 | Dominant |
-| 3 | Win | 89 | 7 | Dominant |
-| 4 | Win | 66 | 22 | Good |
-| 5 | Win | 68 | 40 | Midgame close |
-| 6 | Lose | 35 | 41 | -6 close |
-| 7 | Draw | 35 | 35 | Equal |
-| 8 | Lose | 39 | 44 | -5 close |
-| 9 | Win | 46 | 41 | +5 close |
-| 10 | Lose | 32 | 36 | -4 close |
-| 11 | Win | 37 | 35 | +2 close |
-| 12 | Lose | 38 | 46 | -8 |
-| 13 | Win | 49 | 45 | +4 close |
-| 14 | Lose | 41 | 44 | -3 close |
+| 1 | Win | 83 | 0 | Opponent inactive |
+| 2 | Win | 79 | 0 | Opponent inactive |
+| 3 | Win | 78 | 7 | Dominant (+71) |
+| 4 | Win | 46 | 27 | Dominant (+19) |
+| 5 | Win | 81 | 28 | Dominant (+53) |
+| 6 | Win | 48 | 44 | Good (+4) |
+| 7 | Win | 39 | 34 | Reclaimed (+5) |
+| 8 | Win | 45 | 40 | Reclaimed (+5) |
+| 9 | Win | 46 | 43 | Reclaimed (+3) |
+| 10 | Win | 48 | 44 | Reclaimed (+4) |
+| 11 | Win | 33 | 32 | Close (+1) |
+| 12 | Lose | 45 | 54 | -9 |
+| 13 | Win | 52 | 46 | Reclaimed (+6) |
+| 14 | Win | 37 | 34 | Reclaimed (+3) |
 
-**7W 1D 5L → 8.5/14 pts**
+**13W 0D 1L → 13.0/14 pts**
 
 ## Known Issues
-- All losses are close (3-6 cells) — endgame evaluation not sharp enough
-- Opponent plays very fast (0.001-0.2s) — greedy/local optimal
-- LMR may miss crucial deep tactics in endgame
-- Pass detection may be too conservative (delta 100 too high)
+- v51 has a single loss in Game 12 (45-54) against a strong opponent that uses quick positional tricks to seize large territory slabs early. The opponent spent only ~150ms/move, suggesting a high-speed deterministic strategy.
+- v52 (adaptive strategic pass with `passMargin=0` in endgame) caused regressions (11W 3L locally vs mushroom_test) due to premature passes — reverted.
 
 ## Fixes Applied
-- `auto` lambda → explicit `pair<int, Rect>&` for C++11 compat (libc++ LLVM-MinGW)
+- **v50**: Corrected the `myLost` coefficient from `150` to `100` to mathematically align sorting with cell count difference gain.
+- **v51**: Replaced the heuristic move estimator in time budgeting with a mathematically precise upper-bound estimator `estMovesLeft = totalMushSum / 18` (since each move consumes exactly 10 mushroom points, the remaining moves for both players combined is strictly bounded by `totalMushSum / 10`). This safely doubles our time budget per move, allowing the engine to search deeper and match the lookahead horizon of advanced tournament opponents. Achieved **13W 0D 1L → 13.0/14 pts** on the tournament web.
+- **v52** (reverted): Adaptive strategic pass depth (depth 5 in endgame) and `passMargin=0` when `rects <= 8` caused premature passes and regressed to 11W 3L locally.

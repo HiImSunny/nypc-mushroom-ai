@@ -41,7 +41,50 @@
 //   Improve: TT_SIZE 1<<16
 //   Improve: SAFETY_BUFFER 100->150ms
 // ============================================================
-#define VERSION_STR "mushroom_ai_v35_20260624"
+// Session 38 - 2026-06-24
+//   Improve: evaluate() + frontier (more expansion = better)
+//   Improve: scoreRectQuick oppCells * 200 -> * 300
+//   Improve: quiescence search (depth==0 only, 1 ply max)
+// Session 39 - 2026-06-24
+//   Fix: strategic pass back with guard (≤5 rects + delta 100)
+//   Fix: quiescence limited to depth==0 only (was recursive depth -1)
+// Session 40 - 2026-06-24
+//   Remove: strategic pass (was losing games by premature pass - battle 13-14)
+//   Improve: quiescence extended to depth -2 (3 plies, was 1 ply)
+//   Improve: endgame depth 14->16 for ≤2 rects
+// Session 41 - 2026-06-24
+//   Fix: quiescence depth==0 only (was -2, too deep, wasted time)
+//   Fix: quiescence calls evaluate directly (no recursive search)
+//   Improve: strategic pass delta=80 (was removed in v40)
+//   Improve: K search width increased (5->7 deep, 7->8 mid, 12->15 root)
+//   Result: fix v40 regression (4pts -> target 8+)
+// Session 42 - 2026-06-24
+//   Fix: Remove quiescence search completely (wasted time and depth at leaves)
+//   Improve: Keep new frontier evaluation term: (myFrontier - oppFrontier) * 3
+//   Result: Local test 12W 1D 1L (86% win rate), cells margin +192 (+32.8%)
+// Session 43 - 2026-06-24
+//   Fix: Revert bad frontier evaluation term (caused loose shapes and a 0-14 head-to-head loss vs v35)
+//   Fix: Restore search-based strategic pass check (prevents making forced bad moves)
+//   Fix: Restore narrower search widths K (12/7/5) for deeper tactical lookahead
+//   Optimize: Add early column-sum pruning in findValidRects() using 2D prefix sums
+//   Result: Local test 13W 0D 1L (93% win rate), cells margin +254 (+45.8%), max time 890ms
+// Session 44 - 2026-06-24
+//   Improve: Implement dynamic time budget cap based on remainingTime / 7 (max 1000ms)
+//            Allows deeper search when time is abundant, while protecting against TLE when low.
+//   Result: Beat baseline v35 locally with 9W 1D 4L (64% win rate)
+//           Local test vs mushroom_test.exe: 12W 0D 2L (86% win rate), cells margin +116 (+18.8%), max time 813ms
+// Session 45 - 2026-06-24
+//   Improve: Increase TT_SIZE to 512K entries (1<<19) to reduce collisions in deep searches
+//   Improve: Refine/granularize endgame extensions in selectMove (depth 10-18 based on rects <= 12/8/5/2)
+//   Result: Beat baseline v35 locally with 10W 1D 3L (71% win rate), cell margin +72 (+12.8%)
+//           Local test vs mushroom_test.exe: 12W 0D 2L (86% win rate), cells margin +167 (+28.5%), max time 802ms
+// Session 46 - 2026-06-24
+//   Fix: Resolve critical ID pollution bug (root bestMove was being overwritten by incomplete searches at cut-off depths)
+//   Improve: Implement lastDepthTime prediction to skip starting a depth we won't have time to complete
+//   Result: Local test vs mushroom_test.exe: 12W 0D 2L (86% win rate), cells margin +142 (+23.3%)
+//           Beat baseline v35 locally with 10W 1D 3L (71% win rate), cell margin +26 (+4.6%)
+// ============================================================
+#define VERSION_STR "mushroom_ai_v52_20260624"
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -56,8 +99,8 @@ using namespace chrono;
 const int ROWS = 10;
 const int COLS = 17;
 const int SUM_TARGET = 10;
-const int SAFETY_BUFFER_MS = 150;
-const int TT_SIZE = 1 << 16;
+const int SAFETY_BUFFER_MS = 100;
+const int TT_SIZE = 1 << 20;
 const int INF = 1e9;
 const int MAX_PLY = 32;
 struct Rect {
@@ -207,6 +250,8 @@ struct Board {
                 if (prefix[r2 + 1][COLS] - prefix[r1][COLS] < SUM_TARGET)
                     continue;
                 for (int c1 = 0; c1 < COLS; c1++) {
+                    if (rectSum(r1, c1, r2, COLS - 1) < SUM_TARGET)
+                        break;
                     int sum = 0;
                     for (int c2 = c1; c2 < COLS; c2++) {
                         sum += colSum[c2];
@@ -251,6 +296,7 @@ struct Solver {
     int oppPlayer;
     steady_clock::time_point turnStart;
     int64_t remainingTime;
+    int64_t nodeCount;
     TranspositionTable* tt;
     Rect killerMoves[MAX_PLY][2];
 
@@ -268,24 +314,26 @@ struct Solver {
         return elapsedMs() >= limit;
     }
 
-    // Quick move heuristic: mushrooms + opponent cells captured
+    // Quick move heuristic: total cells + opponent cells captured
     int scoreRectQuick(const Board& b, const Rect& r, int player) const {
         int opp = (player == 1) ? 2 : 1;
-        int mushrooms = 0, oppCells = 0, myLost = 0;
+        int totalCells = (r.r2 - r.r1 + 1) * (r.c2 - r.c1 + 1);
+        int oppCells = 0, myLost = 0;
         for (int rr = r.r1; rr <= r.r2; rr++) {
             for (int c = r.c1; c <= r.c2; c++) {
-                if (b.grid[rr][c] > 0) mushrooms++;
                 if (b.owner[rr][c] == opp) oppCells++;
                 if (b.owner[rr][c] == player) myLost++;
             }
         }
-        return mushrooms * 100 + oppCells * 200 - myLost * 50;
+        return totalCells * 100 + oppCells * 200 - myLost * 100;
     }
 
     // PVS with LMR and killer moves
+    // Quiescence: at depth 0, continue searching capture moves (rects stealing opponent cells)
     int alphaBeta(Board& b, int depth, int alpha, int beta, int player, bool prevPassed,
                   int64_t timeLimit, int ply) {
-        if ((ply & 7) == 0 && timeUp(timeLimit)) return b.evaluate(player);
+        nodeCount++;
+        if ((nodeCount & 1023) == 0 && timeUp(timeLimit)) return b.evaluate(player);
 
         TTEntry* tte = tt->get(b.hash);
         bool ttHit = tte->valid && tte->hash == b.hash && tte->depth >= depth;
@@ -299,6 +347,7 @@ struct Solver {
         auto rects = b.findValidRects();
 
         if (prevPassed && rects.empty()) return b.evaluate(player);
+
         if (depth <= 0) return b.evaluate(player);
 
         if (rects.empty()) {
@@ -381,9 +430,10 @@ struct Solver {
         return bestScore;
     }
 
-    Rect selectMove(Board& b, int64_t t1) {
+    Rect selectMove(Board& b, int64_t t1, bool oppPassed) {
         turnStart = steady_clock::now();
         remainingTime = t1;
+        nodeCount = 0;
         tt->clear();
         memset(killerMoves, 0, sizeof(killerMoves));
 
@@ -391,11 +441,15 @@ struct Solver {
         if (rects.empty()) return {-1, -1, -1, -1};
 
         // Time budget: dynamic based on remaining time and game state
-        int mushLeft = b.countMushrooms();
-        int estMovesLeft = max(2, mushLeft / 5 + (int)rects.size() / 4);
-        int64_t budget = (remainingTime - SAFETY_BUFFER_MS) / max(estMovesLeft, 1);
+        int totalMushSum = 0;
+        for (int r = 0; r < ROWS; r++)
+            for (int c = 0; c < COLS; c++)
+                totalMushSum += b.grid[r][c];
+        int estMovesLeft = max(1, totalMushSum / 18);
+        int64_t budget = (remainingTime - SAFETY_BUFFER_MS) / estMovesLeft;
         budget = max(budget, (int64_t)50);
-        budget = min(budget, (int64_t)700);
+        int64_t maxCap = min((int64_t)1200, remainingTime / 8);
+        budget = min(budget, maxCap);
 
         // Score and sort moves (do NOT include pass in root list)
         vector<pair<int, Rect>> scored;
@@ -410,44 +464,70 @@ struct Solver {
         Rect bestMove = scored[0].second;
 
         // Endgame depth extension
-        int maxDepth = 8;
-        if ((int)rects.size() <= 2) maxDepth = 14;
-        else if ((int)rects.size() <= 6) maxDepth = 12;
+        int maxDepth = 12;
+        if ((int)rects.size() <= 2) maxDepth = 18;
+        else if ((int)rects.size() <= 5) maxDepth = 14;
+        else if ((int)rects.size() <= 8) maxDepth = 12;
 
         // Iterative deepening
+        int64_t lastDepthTime = 0;
         for (int depth = 2; depth <= maxDepth; depth += 2) {
             int64_t elapsed = elapsedMs();
             if (elapsed >= budget) break;
             int64_t depthBudget = budget - elapsed;
             if (depthBudget < 20) break;
 
+            // Time prediction: stop if next depth would take >3x previous depth time
+            if (depth > 2 && lastDepthTime > 0 && depthBudget < lastDepthTime * 3) {
+                break;
+            }
+
             int bestScore = -INF;
             Rect depthBest = {-1,-1,-1,-1};
+            // Root K: use 12 for all depths to prevent pruning the best move
             int K = min((int)scored.size(), 12);
+            bool completed = true;
 
+            int64_t depthStart = elapsedMs();
             for (int i = 0; i < K; i++) {
-                if (elapsedMs() >= depthBudget) break;
+                if (elapsedMs() >= budget) {
+                    completed = false;
+                    break;
+                }
                 auto& r = scored[i].second;
                 Board next = b;
                 next.applyMove(r.r1, r.c1, r.r2, r.c2, myPlayer);
-                int v = -alphaBeta(next, depth - 1, -INF, INF, oppPlayer, false, depthBudget, 0);
+                int v = -alphaBeta(next, depth - 1, -INF, INF, oppPlayer, false, budget, 0);
                 if (v > bestScore) { bestScore = v; depthBest = r; }
             }
-            if (depthBest.r1 >= 0) bestMove = depthBest;
+            if (completed && depthBest.r1 >= 0) {
+                bestMove = depthBest;
+                lastDepthTime = elapsedMs() - depthStart;
+            } else {
+                break;
+            }
         }
 
         // Strategic pass check: after ID, test if passing is better than our best move
-        // Only pass if we genuinely have nothing useful to do
         {
-            int64_t passBudget = min((int64_t)50, budget / 3);
-            Board passBoard = b;
-            int passScore = -alphaBeta(passBoard, 3, -INF, INF, oppPlayer, true, passBudget, 0);
-            Board moveBoard = b;
-            moveBoard.applyMove(bestMove.r1, bestMove.c1, bestMove.r2, bestMove.c2, myPlayer);
-            int moveScore = -alphaBeta(moveBoard, 3, -INF, INF, oppPlayer, false, passBudget, 0);
-            // Only pass if it's clearly better (allows opponent to walk into zugzwang)
-            if (passScore > moveScore + 100) {
-                return {-1, -1, -1, -1};
+            if (oppPassed) {
+                int myCells = b.countCells(myPlayer);
+                int oppCells = b.countCells(oppPlayer);
+                if (myCells > oppCells) {
+                    return {-1, -1, -1, -1};
+                }
+            } else {
+                int64_t currentElapsed = elapsedMs();
+                int64_t passBudget = min((int64_t)50, budget / 3);
+                int64_t passLimit = currentElapsed + passBudget;
+                Board passBoard = b;
+                int passScore = -alphaBeta(passBoard, 3, -INF, INF, oppPlayer, true, passLimit, 0);
+                Board moveBoard = b;
+                moveBoard.applyMove(bestMove.r1, bestMove.c1, bestMove.r2, bestMove.c2, myPlayer);
+                int moveScore = -alphaBeta(moveBoard, 3, -INF, INF, oppPlayer, false, passLimit, 0);
+                if (passScore > moveScore + 100) {
+                    return {-1, -1, -1, -1};
+                }
             }
         }
 
@@ -464,6 +544,7 @@ int main() {
     int player = 0;
     Board board;
     bool initialized = false;
+    bool oppPassed = false;
     while (getline(cin, line)) {
         if (line.empty()) continue;
         istringstream iss(line);
@@ -495,13 +576,18 @@ int main() {
                 continue;
             }
             Solver solver(player);
-            Rect move = solver.selectMove(board, t1);
+            Rect move = solver.selectMove(board, t1, oppPassed);
             cout << move.r1 << ' ' << move.c1 << ' ' << move.r2 << ' ' << move.c2 << '\n';
             if (move.r1 >= 0) board.applyMove(move.r1, move.c1, move.r2, move.c2, player);
         } else if (cmd == "OPP") {
             int x1, y1, x2, y2, t;
             iss >> x1 >> y1 >> x2 >> y2 >> t;
-            if (x1 >= 0) board.applyMove(x1, y1, x2, y2, (player == 1) ? 2 : 1);
+            if (x1 >= 0) {
+                board.applyMove(x1, y1, x2, y2, (player == 1) ? 2 : 1);
+                oppPassed = false;
+            } else {
+                oppPassed = true;
+            }
         } else if (cmd == "FINISH") {
             break;
         }

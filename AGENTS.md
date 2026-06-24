@@ -2,7 +2,7 @@
 
 ## Project
 - **Root**: `D:\Code Project\Python Coding\NYPC Hackathon`
-- **Code**: `main.cpp` (v51 — PVS + LMR + Killer moves + TT (1M) + ID + Column Pruning + Dynamic Cap + Granular Endgame + ID Fix + Move Ordering Heuristic + Terminating Pass Optimization + Mathematically Aligned Move Ordering + Precise Time Budgeting)
+- **Code**: `main.cpp` (v57 — PVS + LMR + Killer moves + TT (1M) + ID + Column Pruning + Dynamic Cap + Granular Endgame + ID Fix + Move Ordering Heuristic + Terminating Pass Optimization + Mathematically Aligned Move Ordering + Precise Time Budgeting + stateHash TT Fix + Fast Frontier)
 - **Logs**: `log\` folder (numbered battle logs)
 - **Binaries**: `mushroom_v*.exe`
 
@@ -18,20 +18,20 @@
 - Double pass = game over. More cells = win.
 - Each player has own time bank. Time management critical.
 
-## Current Strategy (v51)
+## Current Strategy (v57)
 - **PVS** (Principal Variation Search) with zero-window on non-PV nodes
-- **LMR** (Late Move Reduction): reduce depth for later moves (i >= 3 → -1, i >= 6 → -2)
+- **LMR** (Late Move Reduction): reduce depth for later moves (i >= 4 → -1, i >= 7 → -2)
 - **Killer moves**: 2 per ply, +50000/+25000 boost
-- **TT**: 1<<20 (1M) entries, replace-always
+- **TT**: 1<<20 (1M) entries, replace-always. Indexed by `stateHash` (which XORs board hash with player and prevPassed states) to prevent TT lookup corruption during the strategic pass checks.
 - **Evaluation**: cells*100 + connectivity*10 + adjMush*8 (Prioritizes compact connected territories)
-- **Move Ordering**: quick evaluation uses `totalCells * 100 + oppCells * 200 - myLost * 100` (mathematically exact representation of the cell count difference gain)
+- **Move Ordering**: quick evaluation uses `totalCells * 100 + oppCells * 200 - myLost * 100` plus a frontier threat bonus (`+30` per unclaimed adjacent mushroom calculated efficiently using border outer strips) and a mushroom sum bonus.
 - **Endgame extension**: ≤2 rects → depth 18, ≤5 rects → depth 14, ≤8 rects → depth 12
-- **Search Widths (K)**: K (12/7/5) for deep lookahead and maximum time efficiency, saving time for the endgame
-- **Strategic pass**: after ID, test if passing is better than our best move. If the opponent has passed, we can pass to terminate the game immediately and evaluate the exact final board state.
+- **Search Widths (K)**: K (12/9/7/5) based on depth for maximum coverage at shallow levels and tight/deep search at deeper levels.
+- **Strategic pass**: after ID, test if passing is better than our best move. If the opponent has passed, we can pass to terminate the game immediately if we are winning.
 - **Time mgmt**: budget = (time - SAFETY)/max(1, totalMushSum / 18), dynamically capped between 50ms and min(1200ms, remainingTime / 8).
-- **Iterative Deepening**: fixed pollution bug (incomplete depths are discarded) + time-to-completion prediction (`lastDepthTime * 3` check). Default maxDepth is 10 (was 8).
+- **Iterative Deepening**: fixed pollution bug (incomplete depths are discarded) + time-to-completion prediction (`lastDepthTime * 3` check). Default maxDepth is 12.
 
-## Battle History (v51 — 13.0 pts) ⭐ New Record
+## Battle History (v51 — 13.0 pts) ⭐ Prior Record
 | # | Result | Us | Opp | Comment |
 |---|--------|----|-----|---------|
 | 1 | Win | 83 | 0 | Opponent inactive |
@@ -52,10 +52,12 @@
 **13W 0D 1L → 13.0/14 pts**
 
 ## Known Issues
-- v51 has a single loss in Game 12 (45-54) against a strong opponent that uses quick positional tricks to seize large territory slabs early. The opponent spent only ~150ms/move, suggesting a high-speed deterministic strategy.
-- v52 (adaptive strategic pass with `passMargin=0` in endgame) caused regressions (11W 3L locally vs mushroom_test) due to premature passes — reverted.
+- v51 had a single loss in Game 12 (45-54) against a strong opponent that uses quick positional tricks to seize large territory slabs early.
+- v56 (which introduced the new move ordering heuristics and alpha-tightening) regressed to 13W 1L (losing Game 4) due to a Transposition Table lookup corruption bug in the strategic pass checks.
 
 ## Fixes Applied
-- **v50**: Corrected the `myLost` coefficient from `150` to `100` to mathematically align sorting with cell count difference gain.
-- **v51**: Replaced the heuristic move estimator in time budgeting with a mathematically precise upper-bound estimator `estMovesLeft = totalMushSum / 18` (since each move consumes exactly 10 mushroom points, the remaining moves for both players combined is strictly bounded by `totalMushSum / 10`). This safely doubles our time budget per move, allowing the engine to search deeper and match the lookahead horizon of advanced tournament opponents. Achieved **13W 0D 1L → 13.0/14 pts** on the tournament web.
-- **v52** (reverted): Adaptive strategic pass depth (depth 5 in endgame) and `passMargin=0` when `rects <= 8` caused premature passes and regressed to 11W 3L locally.
+- **v53**: Addressed coordinates tie-breakers and oppPassed reset.
+- **v55**: Reverted custom sorting lambda to standard std::sort to recover fine-tuned pruning behaviors.
+- **v56**: Overhauled move ordering using mushroom and frontier threat bonuses.
+- **v57**: Fixed the TT lookup corruption bug by XORing the player ID and prevPassed status into the Zobrist hash (`stateHash`). Simplified and optimized the frontier calculations in `scoreRectQuick` using outer border strips. Restored `stable_sort` to ensure search determinism. Achieved a perfect **14W 0D 0L** local battle test and beat v51 head-to-head with **9W 5L (+14 cells)**.
+

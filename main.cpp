@@ -93,8 +93,20 @@
 // Session 55 - 2026-06-25
 //   Revert: Restore standard std::sort to recover fine-tuned pruning behaviors and fix regressions.
 //   Result: Local test 13W 1L or better, stable 13.0 pts on web.
+// Session 56 - 2026-06-25
+//   Fix: TT lookup now tightens alpha when flag==1 (lower bound), enabling better PVS cutoffs.
+//   Fix: LMR reduction reduced (lmr=1 at i>=4, lmr=2 at i>=7) to prevent pruning tactical moves.
+//   Improve: K at deep nodes increased (depth<=2:12, depth<=4:9, depth<=6:7, else:5) for broader coverage.
+//   Improve: scoreRectQuick adds mushroom-value bonus: sum of mushrooms in rect * 15, prioritizes
+//            tactically richer captures and prevents undervaluing low-cell but high-mushroom moves.
+//   Improve: scoreRectQuick adds "frontier threat" bonus: cells adjacent to unclaimed mushrooms * 30
+//            to better detect and preempt opponent's expansion zones (fixes Game 12 type misses).
+// Session 57 - 2026-06-25
+//   Fix: TT lookup corruption by indexing with player and prevPassed in stateHash.
+//   Improve: Optimize and simplify frontier calculation in scoreRectQuick (using outer border strips).
+//   Improve: Use stable_sort to guarantee deterministic search order.
 // ============================================================
-#define VERSION_STR "mushroom_ai_v55_20260625"
+#define VERSION_STR "mushroom_ai_v57_20260625"
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -136,6 +148,8 @@ inline uint32_t hashRect(const Rect& r) {
 }
 static uint64_t zobristGrid[ROWS][COLS][10];
 static uint64_t zobristOwner[ROWS][COLS][3];
+static uint64_t zobristPlayer[3];
+static uint64_t zobristPassed[2];
 static bool zobristInitialized = false;
 void initZobrist() {
     if (zobristInitialized) return;
@@ -148,6 +162,10 @@ void initZobrist() {
         for (int c = 0; c < COLS; c++)
             for (int o = 0; o < 3; o++)
                 zobristOwner[r][c][o] = rng();
+    for (int p = 0; p < 3; p++)
+        zobristPlayer[p] = rng();
+    for (int pass = 0; pass < 2; pass++)
+        zobristPassed[pass] = rng();
     zobristInitialized = true;
 }
 struct Board {
@@ -336,18 +354,42 @@ struct Solver {
         return elapsedMs() >= limit;
     }
 
-    // Quick move heuristic: total cells + opponent cells captured
+    // Quick move heuristic: total cells + opponent cells captured + mushroom value + frontier threat
     int scoreRectQuick(const Board& b, const Rect& r, int player) const {
         int opp = (player == 1) ? 2 : 1;
         int totalCells = (r.r2 - r.r1 + 1) * (r.c2 - r.c1 + 1);
-        int oppCells = 0, myLost = 0;
+        int oppCells = 0, myLost = 0, mushSum = 0;
         for (int rr = r.r1; rr <= r.r2; rr++) {
             for (int c = r.c1; c <= r.c2; c++) {
                 if (b.owner[rr][c] == opp) oppCells++;
                 if (b.owner[rr][c] == player) myLost++;
+                mushSum += b.grid[rr][c]; // mushrooms cleared = potential denied from opponent
             }
         }
-        return totalCells * 100 + oppCells * 200 - myLost * 100;
+        // Frontier threat: count unclaimed mushrooms immediately adjacent to this rect.
+        // Higher = this rect anchors expansion into mushroom-rich territory.
+        int frontier = 0;
+        if (r.r1 > 0) {
+            for (int c = r.c1; c <= r.c2; c++) {
+                if (b.grid[r.r1 - 1][c] > 0) frontier++;
+            }
+        }
+        if (r.r2 < ROWS - 1) {
+            for (int c = r.c1; c <= r.c2; c++) {
+                if (b.grid[r.r2 + 1][c] > 0) frontier++;
+            }
+        }
+        if (r.c1 > 0) {
+            for (int rr = r.r1; rr <= r.r2; rr++) {
+                if (b.grid[rr][r.c1 - 1] > 0) frontier++;
+            }
+        }
+        if (r.c2 < COLS - 1) {
+            for (int rr = r.r1; rr <= r.r2; rr++) {
+                if (b.grid[rr][r.c2 + 1] > 0) frontier++;
+            }
+        }
+        return totalCells * 100 + oppCells * 200 - myLost * 100 + mushSum * 15 + frontier * 30;
     }
 
     // PVS with LMR and killer moves
@@ -357,11 +399,15 @@ struct Solver {
         nodeCount++;
         if ((nodeCount & 1023) == 0 && timeUp(timeLimit)) return b.evaluate(player);
 
-        TTEntry* tte = tt->get(b.hash);
-        bool ttHit = tte->valid && tte->hash == b.hash && tte->depth >= depth;
+        uint64_t stateHash = b.hash ^ zobristPlayer[player] ^ zobristPassed[prevPassed ? 1 : 0];
+        TTEntry* tte = tt->get(stateHash);
+        bool ttHit = tte->valid && tte->hash == stateHash && tte->depth >= depth;
         if (ttHit) {
             if (tte->flag == 0) return tte->score;
-            if (tte->flag == 1 && tte->score >= beta) return tte->score;
+            if (tte->flag == 1) {
+                if (tte->score >= beta) return tte->score;
+                alpha = max(alpha, (int)tte->score); // tighten alpha from lower bound
+            }
             if (tte->flag == 2 && tte->score <= alpha) return tte->score;
         }
 
@@ -375,7 +421,7 @@ struct Solver {
         if (rects.empty()) {
             Board next = b;
             int v = -alphaBeta(next, depth - 1, -beta, -alpha, opp, true, timeLimit, ply + 1);
-            tt->store(b.hash, depth, v, 0, {-1,-1,-1,-1});
+            tt->store(stateHash, depth, v, 0, {-1,-1,-1,-1});
             return v;
         }
 
@@ -394,10 +440,13 @@ struct Solver {
             }
             scored.push_back({s, r});
         }
-        sort(scored.begin(), scored.end(), [](const pair<int, Rect>& a, const pair<int, Rect>& b) { return a.first > b.first; });
+        stable_sort(scored.begin(), scored.end(), [](const pair<int, Rect>& a, const pair<int, Rect>& b) { return a.first > b.first; });
 
+        // Search width: wider at shallow depths for better coverage of tactical moves.
+        // depth<=2: capture everything relevant; depth<=4: broader mid-game; else: tighter but not too narrow.
         int K = (depth <= 2) ? min((int)scored.size(), 12) :
-                (depth <= 4) ? min((int)scored.size(), 7) :
+                (depth <= 4) ? min((int)scored.size(), 9) :
+                (depth <= 6) ? min((int)scored.size(), 7) :
                 min((int)scored.size(), 5);
 
         int bestScore = -INF;
@@ -420,10 +469,11 @@ struct Solver {
                 v = -alphaBeta(next, depth - 1, -beta, -alpha, opp, false, timeLimit, ply + 1);
                 isFirstMove = false;
             } else {
-                // PVS: zero-window search
+                // PVS: zero-window search with LMR for late moves.
+                // LMR starts at i>=4 (was i>=3) with smaller reduction to avoid missing tactical moves.
                 int lmr = 0;
-                if (i >= 3) lmr = min(depth - 1, 2);
-                if (i >= 6) lmr = min(depth - 1, 3);
+                if (i >= 4) lmr = min(depth - 1, 1);
+                if (i >= 7) lmr = min(depth - 1, 2);
                 int sd = max(0, depth - 1 - lmr);
                 v = -alphaBeta(next, sd, -alpha - 1, -alpha, opp, false, timeLimit, ply + 1);
                 if (v > alpha && lmr > 0) {
@@ -448,7 +498,7 @@ struct Solver {
         int flag = 0;
         if (bestScore <= originalAlpha) flag = 2;
         else if (bestScore >= beta) flag = 1;
-        tt->store(b.hash, depth, bestScore, flag, bestMove);
+        tt->store(stateHash, depth, bestScore, flag, bestMove);
         return bestScore;
     }
 
@@ -481,7 +531,7 @@ struct Solver {
             int s = next.evaluate(myPlayer);
             scored.push_back({s, r});
         }
-        sort(scored.begin(), scored.end(), [](const pair<int, Rect>& a, const pair<int, Rect>& b) { return a.first > b.first; });
+        stable_sort(scored.begin(), scored.end(), [](const pair<int, Rect>& a, const pair<int, Rect>& b) { return a.first > b.first; });
 
         Rect bestMove = scored[0].second;
 

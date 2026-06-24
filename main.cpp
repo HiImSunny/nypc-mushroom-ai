@@ -83,8 +83,12 @@
 //   Improve: Implement lastDepthTime prediction to skip starting a depth we won't have time to complete
 //   Result: Local test vs mushroom_test.exe: 12W 0D 2L (86% win rate), cells margin +142 (+23.3%)
 //           Beat baseline v35 locally with 10W 1D 3L (71% win rate), cell margin +26 (+4.6%)
+// Session 53 - 2026-06-25
+//   Fix: Add deterministic sorting tie-breakers to eliminate cross-compiler/cross-OS discrepancies.
+//   Fix: Reset oppPassed in INIT command parsing.
+//   Result: Stabilized Game 12 win (57-46 cells in web simulation).
 // ============================================================
-#define VERSION_STR "mushroom_ai_v52_20260624"
+#define VERSION_STR "mushroom_ai_v53_20260625"
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -372,7 +376,13 @@ struct Solver {
             }
             scored.push_back({s, r});
         }
-        sort(scored.begin(), scored.end(), [](const pair<int, Rect>& a, const pair<int, Rect>& b) { return a.first > b.first; });
+        sort(scored.begin(), scored.end(), [](const pair<int, Rect>& a, const pair<int, Rect>& b) {
+            if (a.first != b.first) return a.first > b.first;
+            if (a.second.r1 != b.second.r1) return a.second.r1 < b.second.r1;
+            if (a.second.c1 != b.second.c1) return a.second.c1 < b.second.c1;
+            if (a.second.r2 != b.second.r2) return a.second.r2 < b.second.r2;
+            return a.second.c2 < b.second.c2;
+        });
 
         int K = (depth <= 2) ? min((int)scored.size(), 12) :
                 (depth <= 4) ? min((int)scored.size(), 7) :
@@ -459,7 +469,13 @@ struct Solver {
             int s = next.evaluate(myPlayer);
             scored.push_back({s, r});
         }
-        sort(scored.begin(), scored.end(), [](const pair<int, Rect>& a, const pair<int, Rect>& b) { return a.first > b.first; });
+        sort(scored.begin(), scored.end(), [](const pair<int, Rect>& a, const pair<int, Rect>& b) {
+            if (a.first != b.first) return a.first > b.first;
+            if (a.second.r1 != b.second.r1) return a.second.r1 < b.second.r1;
+            if (a.second.c1 != b.second.c1) return a.second.c1 < b.second.c1;
+            if (a.second.r2 != b.second.r2) return a.second.r2 < b.second.r2;
+            return a.second.c2 < b.second.c2;
+        });
 
         Rect bestMove = scored[0].second;
 
@@ -516,7 +532,7 @@ struct Solver {
                 if (myCells > oppCells) {
                     return {-1, -1, -1, -1};
                 }
-            } else {
+            } else if ((int)rects.size() <= 5) {
                 int64_t currentElapsed = elapsedMs();
                 int64_t passBudget = min((int64_t)50, budget / 3);
                 int64_t passLimit = currentElapsed + passBudget;
@@ -568,6 +584,7 @@ int main() {
             board.computePrefixSums();
             board.recomputeHash();
             initialized = true;
+            oppPassed = false;
         } else if (cmd == "TIME") {
             int64_t t1, t2;
             iss >> t1 >> t2;

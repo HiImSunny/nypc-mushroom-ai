@@ -15,3 +15,13 @@ _ver_*
 *.swp
 *.swo
 *~
+
+# Temporary test files
+input.txt
+board*.txt
+play_turn_err.txt
+battle_test_out.txt
+
+# Pretest logs and json downloads
+log_pretest/
+*.json

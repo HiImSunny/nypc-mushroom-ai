@@ -9,8 +9,8 @@ def run_game(board_rows, exec1, exec2):
     """Run one game between exec1 (FIRST) and exec2 (SECOND), return (valid, p1, p2, turns, max_time, status)."""
     board = "INIT " + " ".join(board_rows)
 
-    p1 = subprocess.Popen([exec1], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=0)
-    p2 = subprocess.Popen([exec2], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=0)
+    p1 = subprocess.Popen([exec1], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=0)
+    p2 = subprocess.Popen([exec2], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=0)
 
     try:
         p1.stdin.write("READY FIRST\n"); p1.stdin.flush()

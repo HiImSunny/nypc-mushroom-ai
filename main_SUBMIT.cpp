@@ -106,7 +106,7 @@
 //   Improve: Optimize and simplify frontier calculation in scoreRectQuick (using outer border strips).
 //   Improve: Use stable_sort to guarantee deterministic search order.
 // ============================================================
-#define VERSION_STR "mushroom_ai_v59_20260625"
+#define VERSION_STR "mushroom_ai_v66_20260625"
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -122,7 +122,7 @@ const int ROWS = 10;
 const int COLS = 17;
 const int SUM_TARGET = 10;
 const int SAFETY_BUFFER_MS = 100;
-const int TT_SIZE = 1 << 20;
+const int TT_SIZE = 1 << 21;
 const int INF = 1e9;
 const int MAX_PLY = 32;
 struct Rect {
@@ -273,8 +273,21 @@ struct Board {
                 }
             }
         }
-        score += (myAdjMush - oppAdjMush) * 8;
+        score += (myAdjMush - oppAdjMush) * 12;
         return score;
+    }
+
+    int evaluateTerminal(int player) const {
+        int opp = (player == 1) ? 2 : 1;
+        int myCells = countCells(player);
+        int oppCells = countCells(opp);
+        if (myCells > oppCells) {
+            return 1000000 + (myCells - oppCells) * 100;
+        } else if (myCells < oppCells) {
+            return -1000000 + (myCells - oppCells) * 100;
+        } else {
+            return 0; // Draw
+        }
     }
     vector<Rect> findValidRects() const {
         vector<Rect> result;
@@ -310,7 +323,7 @@ struct Board {
 struct TTEntry {
     uint64_t hash;
     int8_t depth;
-    int16_t score;
+    int32_t score;
     int8_t flag;
     Rect bestMove;
     bool valid;
@@ -359,6 +372,7 @@ struct Solver {
 
     // Quick move heuristic: total cells + opponent cells captured + mushroom value + frontier threat
     int scoreRectQuick(const Board& b, const Rect& r, int player) const {
+        if (r.r1 == -1) return -200000; // PASS move quick score
         int opp = (player == 1) ? 2 : 1;
         int totalCells = (r.r2 - r.r1 + 1) * (r.c2 - r.c1 + 1);
         int oppCells = 0, myLost = 0, mushSum = 0;
@@ -422,13 +436,17 @@ struct Solver {
         int opp = (player == 1) ? 2 : 1;
         auto rects = b.findValidRects();
 
-        if (prevPassed && rects.empty()) return b.evaluate(player);
+        if (prevPassed && rects.empty()) return b.evaluateTerminal(player);
 
         if (depth <= 0) return b.evaluate(player);
 
         if (rects.empty()) {
-            Board next = b;
-            int v = -alphaBeta(next, depth - 1, -beta, -alpha, opp, true, timeLimit, ply + 1);
+            int v;
+            if (prevPassed) {
+                v = b.evaluateTerminal(player);
+            } else {
+                v = -alphaBeta(b, depth - 1, -beta, -alpha, opp, true, timeLimit, ply + 1);
+            }
             if (!aborted) tt->store(stateHash, depth, v, 0, {-1,-1,-1,-1});
             return v;
         }
@@ -448,10 +466,10 @@ struct Solver {
             }
             scored.push_back({s, r});
         }
+
         stable_sort(scored.begin(), scored.end(), [](const pair<int, Rect>& a, const pair<int, Rect>& b) { return a.first > b.first; });
 
         // Search width: wider at shallow depths for better coverage of tactical moves.
-        // depth<=2: capture everything relevant; depth<=4: broader mid-game; else: tighter but not too narrow.
         int K = (depth <= 2) ? min((int)scored.size(), 12) :
                 (depth <= 4) ? min((int)scored.size(), 9) :
                 (depth <= 6) ? min((int)scored.size(), 7) :
@@ -478,7 +496,6 @@ struct Solver {
                 isFirstMove = false;
             } else {
                 // PVS: zero-window search with LMR for late moves.
-                // LMR starts at i>=4 (was i>=3) with smaller reduction to avoid missing tactical moves.
                 int lmr = 0;
                 if (i >= 4) lmr = min(depth - 1, 1);
                 if (i >= 7) lmr = min(depth - 1, 2);
@@ -491,6 +508,7 @@ struct Solver {
                     v = -alphaBeta(next, depth - 1, -beta, -alpha, opp, false, timeLimit, ply + 1);
                 }
             }
+
             if (v > bestScore) { bestScore = v; bestMove = r; }
             alpha = max(alpha, v);
             if (alpha >= beta) {
@@ -500,6 +518,19 @@ struct Solver {
                 }
                 break;
             }
+        }
+
+        // Search the PASS move (if we haven't cut off yet)
+        if (alpha < beta && !timeUp(timeLimit)) {
+            Board next = b;
+            int v;
+            if (prevPassed) {
+                v = b.evaluateTerminal(player);
+            } else {
+                v = -alphaBeta(next, depth - 1, -beta, -alpha, opp, true, timeLimit, ply + 1);
+            }
+            if (v > bestScore) { bestScore = v; bestMove = {-1, -1, -1, -1}; }
+            alpha = max(alpha, v);
         }
 
         if (bestScore == -INF) bestScore = b.evaluate(player);
@@ -521,6 +552,15 @@ struct Solver {
         auto rects = b.findValidRects();
         if (rects.empty()) return {-1, -1, -1, -1};
 
+        // Terminating pass: if opponent passed and we are ahead, pass to end and win.
+        if (oppPassed) {
+            int myCells = b.countCells(myPlayer);
+            int oppCells = b.countCells(oppPlayer);
+            if (myCells > oppCells) {
+                return {-1, -1, -1, -1};
+            }
+        }
+
         // Time budget: dynamic based on remaining time and game state
         int totalMushSum = 0;
         for (int r = 0; r < ROWS; r++)
@@ -532,7 +572,7 @@ struct Solver {
         int64_t maxCap = min((int64_t)1200, remainingTime / 8);
         budget = min(budget, maxCap);
 
-        // Score and sort moves (do NOT include pass in root list)
+        // Score and sort moves
         vector<pair<int, Rect>> scored;
         for (auto& r : rects) {
             Board next = b;
@@ -545,10 +585,10 @@ struct Solver {
         Rect bestMove = scored[0].second;
 
         // Endgame depth extension
-        int maxDepth = 12;
+        int maxDepth = 14;
         if ((int)rects.size() <= 2) maxDepth = 18;
-        else if ((int)rects.size() <= 5) maxDepth = 14;
-        else if ((int)rects.size() <= 8) maxDepth = 12;
+        else if ((int)rects.size() <= 5) maxDepth = 16;
+        else if ((int)rects.size() <= 8) maxDepth = 14;
 
         // Iterative deepening
         int64_t lastDepthTime = 0;
@@ -558,14 +598,17 @@ struct Solver {
             int64_t depthBudget = budget - elapsed;
             if (depthBudget < 20) break;
 
-            // Time prediction: stop if next depth would take >3x previous depth time
-            if (depth > 2 && lastDepthTime > 0 && depthBudget < lastDepthTime * 3) {
+            // Time prediction: stop if next depth would take >2.2x previous depth time
+            if (depth > 2 && lastDepthTime > 0 && depthBudget < lastDepthTime * 22 / 10) {
                 break;
             }
 
-            int bestScore = -INF;
-            Rect depthBest = {-1,-1,-1,-1};
-            // Root K: use 12 for all depths to prevent pruning the best move
+            int bestRectScore = -INF;
+            Rect depthBestRect = {-1,-1,-1,-1};
+            int bestPassScore = -INF;
+            Rect depthBestMove = {-1,-1,-1,-1};
+            int bestOverallScore = -INF;
+
             int K = min((int)scored.size(), 12);
             bool completed = true;
 
@@ -579,38 +622,48 @@ struct Solver {
                 Board next = b;
                 next.applyMove(r.r1, r.c1, r.r2, r.c2, myPlayer);
                 int v = -alphaBeta(next, depth - 1, -INF, INF, oppPlayer, false, budget, 0);
-                if (v > bestScore) { bestScore = v; depthBest = r; }
+                if (v > bestRectScore) {
+                    bestRectScore = v;
+                    depthBestRect = r;
+                }
+                if (v > bestOverallScore) {
+                    bestOverallScore = v;
+                    depthBestMove = r;
+                }
             }
-            if (completed && depthBest.r1 >= 0) {
-                bestMove = depthBest;
+
+            // Search the PASS move at this depth: only if the opponent hasn't passed,
+            // and we are not losing (if we are losing, passing is resigning/forfeiting).
+            int myCells = b.countCells(myPlayer);
+            int oppCells = b.countCells(oppPlayer);
+            bool allowPassSearch = !oppPassed && (myCells >= oppCells);
+            if (allowPassSearch && completed && elapsedMs() < budget) {
+                Board next = b;
+                int v = -alphaBeta(next, depth - 1, -INF, INF, oppPlayer, true, budget, 0);
+                bestPassScore = v;
+                if (v > bestOverallScore) {
+                    bestOverallScore = v;
+                    depthBestMove = {-1, -1, -1, -1};
+                }
+            } else if (!allowPassSearch) {
+                // PASS not allowed, do nothing
+            } else {
+                completed = false;
+            }
+
+            if (completed) {
+                if (depthBestMove.r1 == -1) {
+                    if (bestPassScore > bestRectScore + 100) {
+                        bestMove = {-1, -1, -1, -1};
+                    } else if (depthBestRect.r1 >= 0) {
+                        bestMove = depthBestRect;
+                    }
+                } else {
+                    bestMove = depthBestMove;
+                }
                 lastDepthTime = elapsedMs() - depthStart;
             } else {
                 break;
-            }
-        }
-
-        // Strategic pass check: after ID, test if passing is better than our best move
-        {
-            if (oppPassed) {
-                int myCells = b.countCells(myPlayer);
-                int oppCells = b.countCells(oppPlayer);
-                if (myCells > oppCells) {
-                    return {-1, -1, -1, -1};
-                }
-            } else {
-                int64_t currentElapsed = elapsedMs();
-                int64_t passBudget = min((int64_t)50, budget / 3);
-                int64_t passLimit = currentElapsed + passBudget;
-                Board passBoard = b;
-                aborted = false;
-                int passScore = -alphaBeta(passBoard, 3, -INF, INF, oppPlayer, true, passLimit, 0);
-                Board moveBoard = b;
-                moveBoard.applyMove(bestMove.r1, bestMove.c1, bestMove.r2, bestMove.c2, myPlayer);
-                aborted = false;
-                int moveScore = -alphaBeta(moveBoard, 3, -INF, INF, oppPlayer, false, passLimit, 0);
-                if (passScore > moveScore + 100) {
-                    return {-1, -1, -1, -1};
-                }
             }
         }
 

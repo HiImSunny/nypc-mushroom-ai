@@ -10,16 +10,15 @@ def run_game(input_file, log_file, exec1, exec2):
     assert len(rows) == 10, f"Expected 10 rows, got {len(rows)}"
     board = "INIT " + " ".join(rows)
 
-    p1 = subprocess.Popen([exec1], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=0)
-    p2 = subprocess.Popen([exec2], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=0)
+    p1 = subprocess.Popen([exec1], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=0)
+    p2 = subprocess.Popen([exec2], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=0)
 
     log = []
 
     def read_line(p, name):
         line = p.stdout.readline()
         if not line:
-            stderr = p.stderr.read()
-            raise RuntimeError(f"{name} died. stderr: {stderr}")
+            raise RuntimeError(f"{name} died.")
         return line.rstrip("\n")
 
     def send(p, msg):
